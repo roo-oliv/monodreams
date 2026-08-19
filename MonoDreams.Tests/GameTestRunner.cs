@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -244,6 +245,98 @@ public static class GameTestRunner
 
         return await RunProcessAsync("MonoDreams.Demos", args, debugDir, timeoutSeconds, env);
     }
+
+    // ─── byte-level screenshot comparison (issue #119, contract C7) ──────────────────────────────
+
+    /// Matches the ordinal <c>ScreenshotCaptureSystem.MakeFilename</c> stamps into every PNG name
+    /// (<c>screenshot_%06d_gt…_&lt;wallclock&gt;.png</c>). The ordinal is the ONLY part of that name
+    /// that is comparable across two runs: the trailing timestamp is <c>DateTime.Now</c>, so two runs
+    /// of the same demo never produce the same filename even when they produce the same pixels.
+    private static readonly Regex ScreenshotOrdinal = new(@"^screenshot_(\d+)_", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Indexes a run's PNG captures by capture ordinal — the pairing key
+    /// <see cref="AssertScreenshotsByteIdentical(string, string, string?)"/> compares on.
+    /// </summary>
+    /// <remarks>The ordinal is per capture-system instance. A run that drives two capture systems into
+    /// one debug directory (the periodic headless capture plus an <c>MONODREAMS_SCREENSHOT</c>
+    /// env-driven one) restarts the counter, so the pairing would silently compare unrelated frames —
+    /// that collision throws here instead.</remarks>
+    public static SortedDictionary<int, string> ReadScreenshotsByOrdinal(string directory)
+    {
+        var byOrdinal = new SortedDictionary<int, string>();
+        if (!Directory.Exists(directory)) return byOrdinal;
+
+        foreach (var path in Directory.GetFiles(directory, "screenshot_*.png"))
+        {
+            var name = Path.GetFileName(path);
+            var match = ScreenshotOrdinal.Match(name);
+            if (!match.Success) continue;
+            var ordinal = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+            if (byOrdinal.TryGetValue(ordinal, out var existing))
+                throw new InvalidOperationException(
+                    $"Two captures in '{directory}' share ordinal {ordinal} ('{Path.GetFileName(existing)}' and " +
+                    $"'{name}'). Ordinal pairing is only meaningful for a single capture system per run.");
+            byOrdinal[ordinal] = path;
+        }
+
+        return byOrdinal;
+    }
+
+    /// <summary>
+    /// Asserts two runs produced <b>byte-identical</b> PNG captures — the identity criterion the ECS
+    /// migration gates on (issue #119, contract C7/item 24). <see cref="GameTestResult.AssertScreenshotNonBlank"/>
+    /// only proves a frame was drawn; it cannot see a changed pixel, so it is not usable as an
+    /// equivalence proof between a baseline run and a candidate run.
+    ///
+    /// <para>Frames are paired by capture ordinal, never by filename — the filename carries a
+    /// <c>DateTime.Now</c> stamp and therefore always differs. Comparison is strict on purpose: the
+    /// helper takes no "ignore these frames" or "tolerance" knob, because a byte-identity gate that
+    /// can be relaxed per call site proves nothing.</para>
+    /// </summary>
+    /// <param name="context">Optional label (e.g. the demo screen) prefixed to a failure report.</param>
+    public static void AssertScreenshotsByteIdentical(string firstDir, string secondDir, string? context = null)
+    {
+        var prefix = string.IsNullOrEmpty(context) ? "" : context + ": ";
+        var first = ReadScreenshotsByOrdinal(firstDir);
+        var second = ReadScreenshotsByOrdinal(secondDir);
+
+        Assert.True(first.Count > 0,
+            $"{prefix}No 'screenshot_*.png' captures in '{firstDir}' — there is nothing to compare.");
+        Assert.True(first.Keys.SequenceEqual(second.Keys),
+            $"{prefix}The two runs captured different frame sets: " +
+            $"[{string.Join(", ", first.Keys)}] in '{firstDir}' vs [{string.Join(", ", second.Keys)}] in '{secondDir}'.");
+
+        foreach (var ordinal in first.Keys)
+        {
+            var pathA = first[ordinal];
+            var pathB = second[ordinal];
+            var bytesA = File.ReadAllBytes(pathA);
+            var bytesB = File.ReadAllBytes(pathB);
+            if (bytesA.AsSpan().SequenceEqual(bytesB)) continue;
+
+            var shared = Math.Min(bytesA.Length, bytesB.Length);
+            var offset = shared;
+            for (var i = 0; i < shared; i++)
+            {
+                if (bytesA[i] == bytesB[i]) continue;
+                offset = i;
+                break;
+            }
+
+            Assert.Fail(
+                $"{prefix}Capture #{ordinal} differs between the two runs.\n" +
+                $"  a: {pathA} ({bytesA.Length} bytes)\n" +
+                $"  b: {pathB} ({bytesB.Length} bytes)\n" +
+                $"  first differing byte at offset {offset}" +
+                (offset < shared ? $" (0x{bytesA[offset]:X2} vs 0x{bytesB[offset]:X2})" : " (one file is a prefix of the other)"));
+        }
+    }
+
+    /// <summary>Byte-identity of the PNGs two <see cref="GameTestResult"/>s captured — see
+    /// <see cref="AssertScreenshotsByteIdentical(string, string, string?)"/>.</summary>
+    public static void AssertScreenshotsByteIdentical(GameTestResult first, GameTestResult second, string? context = null)
+        => AssertScreenshotsByteIdentical(first.DebugDir, second.DebugDir, context);
 
     private static string CreateDebugDir()
     {
