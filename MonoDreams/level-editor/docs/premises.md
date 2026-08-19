@@ -2363,14 +2363,20 @@ argument). Each exposes an optional `Func<KeyboardState>? getKeyboardState` that
 A host that needs input determinism pins the whole editor surface by constructing the overlay with its own
 gate (the Demos host passes `DemoKeyboard.Read`); a windowed game passes nothing and is unchanged.
 
-The seam is a two-part obligation and each part is linted where it lives. The overlay must **forward** the
-seam it is given to all six readers, by VALUE and not merely under the `getKeyboardState:` label — a
-construction labelled `getKeyboardState: Keyboard.GetState` reinstates the default it exists to replace and
-reads as compliant. And the composing HOST must **give** it one: nothing inside the module can tell whether
-`readKeyboard` arrived, so the host's own input lint is what requires the construction to carry it (the
-demos' `new EditorOverlay(…)` must carry `readKeyboard: DemoKeyboard.Read`). Checking only the forwarding
-half leaves an overlay built with no seam at all — all six readers back on the hardware — with every lint
-green.
+The seam is a three-part obligation and each part is linted where it lives. (1) The overlay must
+**forward** the seam it is given to all six readers, by VALUE and not merely under the `getKeyboardState:`
+label — a construction labelled `getKeyboardState: Keyboard.GetState` reinstates the default it exists to
+replace and reads as compliant; the same value rule governs the one NESTED reader, `EditorShortcutSystem`'s
+`KeyChordTracker`, whose own parameter carries the same hardware default (`getKeyboardState: null` there is
+`Keyboard.GetState` there). (2) The composing HOST must **give** it one: nothing inside the module can tell
+whether `readKeyboard` arrived, so the host's own input lint is what requires the construction to carry it
+(the demos' `new EditorOverlay(…)` must carry `readKeyboard: DemoKeyboard.Read`). Checking only the
+forwarding half leaves an overlay built with no seam at all — all six readers back on the hardware — with
+every lint green. (3) No reader may sit **outside** the seam: every `Keyboard.GetState` under
+`MonoDreams/level-editor` is the default of a declared `Func<KeyboardState>? getKeyboardState`
+(`getKeyboardState ?? Keyboard.GetState`), and a file that reads the keyboard declares that parameter in
+exactly that shape. Parts 1 and 2 enumerate the readers that already opted in, so a system with an inline
+`var keys = Keyboard.GetState();` is matched by neither — the overlay cannot pin what takes no seam.
 
 Headlessness does **not** silence these readers. They are woven `RunNormally`, so under the editor run
 flag they run in every frame of a headless session and are inert only while no editor UI is open — a
@@ -2386,13 +2392,16 @@ surfaces (`AKeyboardInputHandlingSystem.SkipHardwareRead`) already follow.
 keyboard under a protocol that reports itself engaged; a chord fired that way (Delete, ⌘Z, G/S/R) mutates
 the scene in ONE of two byte-identity runs, and the resulting pixel diff is blamed on the change under
 test rather than on the keyboard.
-**Tests:** `MonoDreams.Tests/LevelEditor/EditorKeyboardSeamLintTests.cs`
-(`EveryKeyboardReaderTheOverlayBuilds_IsHandedTheOverlaysOneSeam` source-scans the module for the seam
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorKeyboardSeamLintTests.cs` for parts 1 and 3 —
+`EveryKeyboardReaderTheOverlayBuilds_IsHandedTheOverlaysOneSeam` source-scans the module for the seam
 parameter and fails on any of the six constructions that does not forward `getKeyboardState: readKeyboard`
-— the label alone is not accepted; `TheShortcutSystemForwardsItsSeamToTheChordTracker` closes the one
-nested reader) for the forwarding half; `DeterministicClockTests.Precheck_EveryDemoScreenRoutesHardwareInputThroughTheProtocol`
-for the giving half (any `new EditorOverlay(` in a scanned demo source must carry
-`readKeyboard: DemoKeyboard.Read`).
+(the label alone is not accepted); `TheShortcutSystemForwardsItsSeamToTheChordTracker` closes the nested
+reader by the same VALUE rule, and `TheNestedSeamPredicate_TakesTheValue_NotTheLabel` pins that predicate
+against `getKeyboardState: null` / `: Keyboard.GetState`;
+`EveryKeyboardReadInTheModule_IsTheDefaultOfADeclaredSeam` bans any module keyboard read that is not a
+declared seam's default, which is what catches an ADDED reader rather than a broken scan.
+`DeterministicClockTests.Precheck_EveryDemoScreenRoutesHardwareInputThroughTheProtocol` covers part 2 (any
+`new EditorOverlay(` in a scanned demo source must carry `readKeyboard: DemoKeyboard.Read`).
 **Depends on:** this file — "The editor's keyboard shortcuts are ONE chord table …" (the chord surface this
 seam feeds), "The editor run flag composes the always-on editor …" (why these systems exist in a headless
 run at all); foundation — "Key chords fire on an exact-modifier press edge; `PlatformCommand` resolution is

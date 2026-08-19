@@ -178,7 +178,19 @@ dimension row is struck and replaced in ## Money dimension table.
   hardware with every test green; **the demos input lint now requires every `new EditorOverlay(` in a
   scanned demo source to carry it**. (c) The engaged-subclass check saw only DEMO-declared subclasses,
   so `DefaultEditorKeys` (engine-declared, constructed by `DemoEditor`, passed as `_editor.Keys`) never
-  entered it; **the set is now seeded from the engine's declarations too**. The seam file's exemption is
+  entered it; **the set is now seeded from the engine's declarations too**. **CORRECTED (round 5): the
+MODULE-side lint (`EditorKeyboardSeamLintTests`) carried the mirror of hole (a) plus a blind spot.**
+~~Its nested-reader leg asserted the `getKeyboardState` LABEL appears in the `KeyChordTracker`
+construction~~ **it now requires the shortcut system's own parameter as the VALUE — `getKeyboardState:
+null` and `: Keyboard.GetState` are rejected, and `TheNestedSeamPredicate_TakesTheValue_NotTheLabel`
+pins that predicate directly**. And ~~both existing legs enumerate the systems that already declare the
+seam, so their `>=5`/`>=6` floors detect a broken scan and never an ADDED reader~~ **a new leg,
+`EveryKeyboardReadInTheModule_IsTheDefaultOfADeclaredSeam`, requires every `Keyboard.GetState` under
+`MonoDreams/level-editor` to sit on a `getKeyboardState ?? Keyboard.GetState` seam-default line and the
+owning file to declare the parameter in the shape the enumeration reads** — an editor system with an
+inline `var keys = Keyboard.GetState();` was matched by nothing (it is not a demo source, so the
+raw-read ban never saw it either), which is verbatim the Breaks clause of the module's own premise. The
+seam file's exemption is
   likewise ~~per file~~ **one gated read: exactly one `Keyboard.GetState()`, on the `SkipHardwareRead`
   gate line, and no `Mouse.GetState()`**.
 - **Physics stays out** until its unseeded `Random` is seeded; that is a user-visible product decision
