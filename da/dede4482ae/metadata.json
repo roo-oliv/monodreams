@@ -3,7 +3,7 @@
   "checkpoint_id": "dadede4482ae",
   "strategy": "manual-commit",
   "branch": "issue-119-clock",
-  "checkpoints_count": 10,
+  "checkpoints_count": 18,
   "files_touched": [
     ".claude/settings.local.json",
     ".claude/worktrees/wf_273cb376-4c9-4/Icon/ascii/pipeline/build/.gitignore",
@@ -3555,13 +3555,20 @@
       "context": "/da/dede4482ae/0/context.md",
       "content_hash": "/da/dede4482ae/0/content_hash.txt",
       "prompt": "/da/dede4482ae/0/prompt.txt"
+    },
+    {
+      "metadata": "/da/dede4482ae/1/metadata.json",
+      "transcript": "/da/dede4482ae/1/full.jsonl",
+      "context": "/da/dede4482ae/1/context.md",
+      "content_hash": "/da/dede4482ae/1/content_hash.txt",
+      "prompt": "/da/dede4482ae/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 200,
-    "cache_creation_tokens": 1066411,
-    "cache_read_tokens": 42793127,
-    "output_tokens": 147067,
-    "api_call_count": 102
+    "input_tokens": 284,
+    "cache_creation_tokens": 2201983,
+    "cache_read_tokens": 51079741,
+    "output_tokens": 253474,
+    "api_call_count": 145
   }
 }
