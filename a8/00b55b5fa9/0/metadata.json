@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.4",
+  "checkpoint_id": "a800b55b5fa9",
+  "session_id": "92515c29-75b1-45d1-88b9-22f0fd249775",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-19T22:40:30.236346Z",
+  "branch": "issue-119-wave0",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "MonoDreams.Tests/Ui/HighlightSystemTests.cs",
+    "MonoDreams.Tests/Ui/PinnedLayoutRootTests.cs",
+    "MonoDreams.Tests/Ui/PointerPickTests.cs",
+    "MonoDreams.Tests/Ui/TooltipTests.cs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "7630ed30-0e54-4864-a537-e6d25430a54d",
+  "checkpoint_transcript_start": 653,
+  "transcript_lines_at_start": 653,
+  "token_usage": {
+    "input_tokens": 20,
+    "cache_creation_tokens": 404118,
+    "cache_read_tokens": 3586202,
+    "output_tokens": 8222,
+    "api_call_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-19T22:40:29.363026Z",
+    "agent_lines": 0,
+    "human_added": 4157,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 4157,
+    "agent_percentage": 0
+  },
+  "transcript_path": ".claude-glue/projects/-Users-rodrigooliveira-git-roo-oliv-monodreams/92515c29-75b1-45d1-88b9-22f0fd249775.jsonl"
+}
