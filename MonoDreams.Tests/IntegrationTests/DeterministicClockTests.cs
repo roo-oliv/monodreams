@@ -42,6 +42,16 @@ namespace MonoDreams.Tests.IntegrationTests;
 /// covered set plus the excluded set stops being <i>every</i> screen the host can boot — so a
 /// screen added later, or one quietly dropped from the run list, cannot shrink the precheck in
 /// silence.</para>
+///
+/// <para>"Physics is the only unseeded RNG" is likewise checked rather than asserted in prose:
+/// <see cref="Precheck_CoveredScreensSeedEveryRandom_AndTheExclusionReasonStillHolds"/> scans
+/// each covered screen's source for an unseeded <c>Random</c>. A DORMANT one still counts as a
+/// failure — the camera demo carried one (its hit-shake jitter) that only wakes when the dot
+/// enters a hit square, so today's green run said nothing about tomorrow's op plan, while every
+/// record here named physics as the single source and would have sent the debugger to the wrong
+/// screen. It is seeded now (<c>CameraHitSystem.ShakeJitterSeed</c>), and the same test asserts
+/// the physics exclusion's stated reason still holds, so seeding that screen without widening
+/// <see cref="Covered"/> fails too.</para>
 /// </summary>
 [Collection(ContentTreeGuardCollection.Name)]
 public class DeterministicClockTests
@@ -63,6 +73,26 @@ public class DeterministicClockTests
                       "point, initial velocity), so the scene CONTENT differs per process — seed it " +
                       "before this screen can carry a pixel-identity claim.",
     };
+
+    /// <summary>Where each registered demo screen's source lives, relative to the repo root. One file
+    /// per screen today (each demo screen carries its own systems), so it is also the scan surface for
+    /// <see cref="Precheck_CoveredScreensSeedEveryRandom_AndTheExclusionReasonStillHolds"/>.</summary>
+    private static readonly Dictionary<string, string> ScreenSources = new()
+    {
+        ["launcher"] = Path.Combine("MonoDreams.Demos", "Screens", "DemoLauncherScreen.cs"),
+        ["camera"] = Path.Combine("MonoDreams", "camera", "demo", "CameraDemoScreen.cs"),
+        ["physics"] = Path.Combine("MonoDreams", "physics", "demo", "PhysicsDemoScreen.cs"),
+        ["dialogue"] = Path.Combine("MonoDreams", "dialogue", "demo", "DialogueDemoScreen.cs"),
+        ["ui"] = Path.Combine("MonoDreams", "ui", "demo", "UiDemoScreen.cs"),
+        ["audio"] = Path.Combine("MonoDreams", "audio", "demo", "AudioDemoScreen.cs"),
+    };
+
+    /// <summary>An RNG nothing pins the sequence of: <c>new Random()</c> (explicit or target-typed) and
+    /// <c>Random.Shared</c>. Textual by design — the same reason the coverage guard reads source: a
+    /// commented-out one is still a trap the next author copies, and failing loud on it is cheap.</summary>
+    private static readonly Regex UnseededRandom = new(
+        @"new\s+(?:System\.)?Random\s*\(\s*\)|(?:System\.)?Random\s+\w+\s*=\s*new\s*\(\s*\)|Random\.Shared",
+        RegexOptions.Compiled);
 
     public static IEnumerable<object[]> CoveredScreens => Covered.Select(screen => new object[] { screen });
 
@@ -128,6 +158,77 @@ public class DeterministicClockTests
             $"[{string.Join(", ", stale)}] is covered or excluded here but no longer registered in " +
             "DemoScreens.cs — a renamed screen leaves the theory running a nonexistent one.");
     }
+
+    /// <summary>
+    /// The precheck's exclusion list is only worth reading if it is the WHOLE list. Every covered
+    /// screen's source must therefore contain no unseeded <c>Random</c> — dormant or not: an RNG that
+    /// today's pinned run never reaches (the camera demo's hit-shake jitter fires only once the dot
+    /// enters a hit square) still reds a future run the moment an op plan, or a stray key held during a
+    /// headless run, wakes it — and then <see cref="Excluded"/>, the C8 premise and the contract all
+    /// point the debugger at physics, the one screen that is not to blame.
+    ///
+    /// <para>The converse is checked too: a screen excluded FOR an unseeded RNG must still have one.
+    /// Seeding physics without moving it into <see cref="Covered"/> would leave the precheck five
+    /// screens wide with nothing left to justify it.</para>
+    /// </summary>
+    [Fact]
+    public void Precheck_CoveredScreensSeedEveryRandom_AndTheExclusionReasonStillHolds()
+    {
+        var registered = RegisteredDemoScreens();
+
+        var unmapped = registered.Where(screen => !ScreenSources.ContainsKey(screen)).ToList();
+        Assert.True(
+            unmapped.Count == 0,
+            $"demo screen(s) [{string.Join(", ", unmapped)}] have no entry in {nameof(ScreenSources)}, so " +
+            "nothing scans them for unseeded randomness. Map them to their source file.");
+
+        var staleSources = ScreenSources.Keys.Where(screen => !registered.Contains(screen)).ToList();
+        Assert.True(
+            staleSources.Count == 0,
+            $"[{string.Join(", ", staleSources)}] is mapped in {nameof(ScreenSources)} but no longer " +
+            "registered in DemoScreens.cs — the scan is reading a screen the host cannot boot.");
+
+        foreach (var screen in Covered)
+        {
+            var (path, source) = ReadScreenSource(screen);
+            var found = UnseededRandom.Match(source);
+            Assert.False(
+                found.Success,
+                $"'{screen}' is run by {nameof(Demo_RunTwiceHeadless_ProducesByteIdenticalPngs)} but " +
+                $"{path}:{LineOf(source, found.Index)} creates an unseeded Random ('{found.Value}'). Even " +
+                "while nothing consumes it, it is a byte-identity failure waiting for the input that " +
+                "reaches it, and every record here names physics as the only unseeded RNG. Seed it with " +
+                "a constant (CameraHitSystem's ShakeJitterSeed is the pattern), or move the screen into " +
+                $"{nameof(Excluded)} with the reason it cannot be seeded.");
+        }
+
+        foreach (var (screen, reason) in Excluded)
+        {
+            if (!reason.Contains("unseeded", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var (path, source) = ReadScreenSource(screen);
+            Assert.True(
+                UnseededRandom.IsMatch(source),
+                $"'{screen}' is excluded from the precheck because of an unseeded Random, but {path} no " +
+                $"longer has one. Move it into {nameof(Covered)} (and re-run the precheck) rather than " +
+                "leaving the byte-identity claim narrower than the code now allows.");
+        }
+    }
+
+    /// <summary>Reads a registered screen's source, failing with the mapping to fix when it moved.</summary>
+    private static (string RelativePath, string Source) ReadScreenSource(string screen)
+    {
+        var relative = ScreenSources[screen];
+        var full = Path.Combine(GameTestRunner.RepoRoot(), relative);
+        Assert.True(
+            File.Exists(full),
+            $"source for demo screen '{screen}' not found at {relative} — update {nameof(ScreenSources)}.");
+        return (relative, File.ReadAllText(full));
+    }
+
+    /// <summary>1-based line of a character index, so a failure names file:line.</summary>
+    private static int LineOf(string source, int index) =>
+        source.Take(index).Count(c => c == '\n') + 1;
 
     /// <summary>Short screen names (<c>demos.camera</c> → <c>camera</c>) from the host's registry — the
     /// same vocabulary <c>--screen</c> takes.</summary>

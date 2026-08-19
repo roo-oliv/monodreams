@@ -151,6 +151,12 @@ dimension row is struck and replaced in ## Money dimension table.
   captured outside it is noise, and comparing against it proves nothing.
 - **Physics stays out** until its unseeded `Random` is seeded; that is a user-visible product decision
   (fixed layout on every launch vs a headless-only fork) and was deliberately NOT taken by the clock PR.
+  It is the ONLY unseeded RNG in the demo surface, and that claim is enforced, not asserted: the camera
+  demo's hit-shake jitter RNG (`CameraHitSystem`, dormant under the pinned plan — it wakes only when the
+  dot enters a hit square) was seeded with a constant, which is NOT the physics decision (transient jolt,
+  no scene content), and `DeterministicClockTests.Precheck_CoveredScreensSeedEveryRandom_AndTheExclusionReasonStillHolds`
+  scans every covered screen's source so a new unseeded RNG cannot hide behind a green run, and fires
+  from the other side if physics is seeded without widening the base to 6/6.
 - **Never loosened:** the comparer itself has no tolerance knob and skips no frames, by design.
 
 ## Interaction matrix

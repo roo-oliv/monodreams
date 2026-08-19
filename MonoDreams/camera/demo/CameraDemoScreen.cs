@@ -1299,10 +1299,19 @@ public class CameraHitSystem : ISystem<GameState>
     // Trauma drains linearly to zero in 1 / TraumaDecayPerSecond seconds (~0.4s here),
     // so each hit is a brief burst rather than a sustained rumble.
     private const float TraumaDecayPerSecond = 2.5f;
+    // Any constant would do — what matters is that the jitter sequence is the SAME in every
+    // process. The shake's look is unchanged (still a fresh pseudo-random direction per frame),
+    // but two runs of the camera demo that take the same hits produce the same offsets, so the
+    // headless byte-identity precheck (MonoDreams.Tests DeterministicClockTests) keeps holding
+    // once the dot actually enters the right square — a keyboard press during a headless run, or
+    // an op plan that moves the dot, is enough to wake this RNG. Unlike the physics demo's RNG
+    // this one decides no scene CONTENT, only a transient sub-frame jolt, so pinning it costs
+    // nothing a player can see.
+    private const int ShakeJitterSeed = 7;
 
     private readonly MonoDreams.Component.Camera _camera;
     private readonly CameraDemoScreen _screen;
-    private readonly Random _rng = new();
+    private readonly Random _rng = new(ShakeJitterSeed);
 
     private float _shakeTrauma;     // right square
     private float _rotateTrauma;    // left square

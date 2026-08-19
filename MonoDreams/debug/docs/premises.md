@@ -393,7 +393,13 @@ precheck's own exclusion list, and a test compares that pair against the
 host's screen registry. So "the demos are byte-reproducible" always says how
 many screens it covers, and a screen added later (or dropped from the run
 list) fails loudly instead of narrowing the claim in silence. Today the one
-exclusion is the physics demo's unseeded `Random`.
+exclusion is the physics demo's unseeded `Random`, and that "one" is checked
+rather than believed: a second test scans every covered screen's source and
+fails on an unseeded `Random` there even when nothing currently consumes it —
+a dormant RNG (the camera demo's hit-shake jitter, seeded since) reds a later
+run the moment an op plan or a stray keypress reaches it, while every record
+still names physics. Seeding an excluded screen without widening the covered
+set fails the same test from the other side.
 
 **Why:** the whole point of the headless Demos path (issue #28) is to let an
 agent verify its own work without a human, which requires that re-running the
@@ -422,7 +428,11 @@ demo screens, each run twice under the deterministic-input protocol, compared
 byte for byte via `GameTestRunner.AssertScreenshotsByteIdentical`; and
 `Precheck_CoversEveryDemoScreen_OrNamesTheExclusionAndWhy` in the same file
 holds the scope, failing when a registered demo screen is neither run nor
-excluded-with-a-reason.
+excluded-with-a-reason, and
+`Precheck_CoveredScreensSeedEveryRandom_AndTheExclusionReasonStillHolds` holds
+the exclusion's content, failing on an unseeded `Random` in a covered screen
+(dormant included) or on an excluded screen whose stated reason no longer
+applies.
 **Depends on:** "Headless Demos renders every frame; capture reads the
 backbuffer" (there are pixels to compare only because `Draw` is not a no-op);
 "Headless heap samples measure the live set, not transient churn" (the `Heap
