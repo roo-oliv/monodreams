@@ -169,8 +169,12 @@ modules into real game screens — start at
   `MONODREAMS_EDITOR=1` plus a present `editor_op_plan.json` makes every demo
   screen call `DemoKeyboard.Engage`, which stands BOTH hardware legs down (the
   mouse via `CursorInputSystem.SkipHardwareRead`, the keyboard via the shared
-  `DemoKeyboard.Read` gate every demo keyboard reader goes through). Demo
-  screens must never call `Keyboard.GetState()`/`Mouse.GetState()` directly —
+  `DemoKeyboard.Read` gate every demo keyboard reader goes through). The editor
+  overlay's own six keyboard readers are on that same gate by construction —
+  `DemoEditor` passes `EditorOverlay(readKeyboard: DemoKeyboard.Read)`, since
+  the protocol requires the editor flag and those readers are woven
+  `RunNormally`. Demo screens must never call
+  `Keyboard.GetState()`/`Mouse.GetState()` directly —
   `DeterministicClockTests` lints it, and runs the double-run byte-identity
   precheck the ECS-migration identity gate rests on.
 - **Debug directory override** — set `MONODREAMS_DEBUG_DIR` env var to

@@ -341,8 +341,10 @@ public class Game1 : Game
         }
 
         // Q exits the app from any screen; ESC is handled per-screen (typically
-        // "back to launcher" inside a demo screen).
-        if (!_headless.Enabled && Keyboard.GetState().IsKeyDown(Keys.Q))
+        // "back to launcher" inside a demo screen). Read through the ONE demos keyboard gate like
+        // every other reader in this host — off the deterministic-input protocol it IS
+        // Keyboard.GetState, so a windowed run is unchanged.
+        if (!_headless.Enabled && DemoKeyboard.Read().IsKeyDown(Keys.Q))
             Exit();
         _screenController.Update(frameTime);
 

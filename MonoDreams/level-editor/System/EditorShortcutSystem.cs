@@ -26,9 +26,13 @@ namespace MonoDreams.LevelEditor.System;
 /// no extra Edit-guard wrapper is needed.</para>
 ///
 /// <para><b>Headless.</b> The tracker always advances (so press edges never leak across a
-/// context change), but in a headless run the keyboard seam reports no keys, so nothing fires — the
-/// action channel (ops) drives editing headlessly, per the chord replay caveat. The tracker's platform
-/// flag (<c>commandIsMeta</c>) is injected; this system never reads the OS.</para>
+/// context change), and the action channel (ops) — not chords — drives editing headlessly, per the
+/// chord replay caveat. Headlessness alone does NOT silence the chords: the default seam is
+/// <see cref="Keyboard.GetState"/>, which reports the real hardware whether or not a window is shown,
+/// so a host that needs a run to be input-deterministic must INJECT its seam
+/// (<c>getKeyboardState</c> — the demos pass their <c>DemoKeyboard.Read</c> gate through
+/// <c>EditorOverlay</c>'s <c>readKeyboard</c>). The tracker's platform flag (<c>commandIsMeta</c>) is
+/// injected; this system never reads the OS.</para>
 /// </summary>
 public sealed class EditorShortcutSystem : ISystem<GameState>
 {

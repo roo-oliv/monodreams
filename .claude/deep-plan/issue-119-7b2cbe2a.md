@@ -152,27 +152,47 @@ dimension row is struck and replaced in ## Money dimension table.
   seam**: `DemoKeyboard.Engage` (called by every demo screen under `Overlay.HasEditorOpPlan`) sets
   `CursorInputSystem.SkipHardwareRead` (mouse), flips the shared `DemoKeyboard.Read` gate every demo
   keyboard reader goes through, and sets `SkipHardwareRead` on each `AKeyboardInputHandlingSystem` in
-  the screen. Pinning only the mouse was a hole: the headless window is hidden best-effort (SDL hide +
+  the screen. ~~That is the whole keyboard leg~~ **CORRECTED (round 3): the EDITOR OVERLAY's own six
+  keyboard readers are part of the leg and are pinned by construction, not by `Engage`** — the panels'
+  filter/inline edit, the Save dialog, the context menu, the modal transform and the `EditorShortcuts`
+  chord tracker each own a `getKeyboardState` seam that DEFAULTS to `Keyboard.GetState`, so under
+  `MONODREAMS_EDITOR=1` (which the protocol requires) they were woven `RunNormally` and still on the
+  hardware, inert only because `Play@0` opens no editor UI. `EditorOverlay` now takes one
+  `readKeyboard` seam and threads it to all six; `DemoEditor` passes `DemoKeyboard.Read`. Pinning only
+  the mouse was a hole: the headless window is hidden best-effort (SDL hide +
   a macOS-only focus-steal hint), so a key held in one of two runs moved the camera demo's ball /
   advanced the dialogue / typed into the UI demo's field — a byte diff that reads as a behaviour
   change. Engagement is observable (`Deterministic input: hardware reads skipped on '<screen>'`,
   asserted by every precheck run) and linted (`Precheck_EveryDemoScreenRoutesHardwareInputThroughTheProtocol`
-  forbids a direct `Keyboard.GetState()`/`Mouse.GetState()` in a demo screen source, and requires any
-  screen building a cursor pipeline to engage).
+  forbids a direct `Keyboard.GetState()`/`Mouse.GetState()` in any scanned demo source except the seam
+  file itself, requires an engine reader whose seam defaults to the hardware to be constructed with one
+  (`TextInputSystem.KeyboardStateProvider`, `KeyChordTracker`), requires every
+  `AKeyboardInputHandlingSystem` subclass a screen constructs to reach `Engage`'s argument list, and
+  requires any screen building a cursor pipeline to engage).
 - **Physics stays out** until its unseeded `Random` is seeded; that is a user-visible product decision
   (fixed layout on every launch vs a headless-only fork) and was deliberately NOT taken by the clock PR.
-  It is the ONLY unpinned RNG **in the demo screen sources** — that is the claim's exact scope, and it is
+  It is the ONLY unpinned source of nondeterminism **in the sources the demos own** — ~~in the demo
+  screen sources~~ **CORRECTED (round 3): the scope is per-screen demo directory PLUS
+  `MonoDreams.Demos/UI` and the demos host root, which every covered screen composes and neither of
+  which was scanned** — that is the claim's exact scope, and it is
   enforced, not asserted: the camera demo's hit-shake jitter RNG (`CameraHitSystem`, dormant under the
   pinned plan — it wakes only when the dot enters a hit square) was seeded with a constant, which is NOT
   the physics decision (transient jolt, no scene content), and
-  `DeterministicClockTests.Precheck_CoveredScreensSeedEveryRandom_AndTheExclusionReasonStillHolds` scans
-  every `.cs` file in every covered screen's demo DIRECTORY (not one file per screen) and matches on the
-  TYPE, not on one shape — `new Random()`, `Random.Shared`, a target-typed `new()` assigned to a
-  `Random`-typed member (nullable or constructor-body), and any seed that is not a compile-time integer
-  constant (a `Environment.TickCount` seed is no better than none). So a new unpinned RNG cannot hide
-  behind a green run, and the test fires from the other side if physics is seeded without widening the
-  base to 6/6. The engine systems a demo composes are outside this scope: they carry no RNG today, and a
-  lint covering them belongs to the engine, not to this precheck.
+  `DeterministicClockTests.Precheck_CoveredScreensPinEveryNondeterministicSource_AndTheExclusionReasonStillHolds`
+  scans every `.cs` file of those roots and matches on the
+  TYPE, not on one shape — `new Random()`, `Random.Shared`, a target-typed `new()` reaching a `Random`
+  in ANY of its shapes (nullable, constructor body, property initialiser, `??=`, expression body,
+  collection expression — ~~"assigned to a `Random`-typed member"~~ was one shape, and four escaped it),
+  and any seed that is not a compile-time integer constant (an `Environment.TickCount` seed is no better
+  than none; a seed qualified by a type the scan never saw declared is not resolvable and counts as
+  unpinned). ~~RNG only~~ **the census also fails on a wallclock/GUID read (`DateTime.Now`,
+  `Guid.NewGuid()`, `Environment.TickCount`, `Stopwatch.GetTimestamp()`), which makes scene content
+  per-process exactly as an unseeded RNG does.** The exclusion's cause is a typed `ExclusionCause`, so
+  the converse check cannot be disabled by rewording the entry's prose. So a new unpinned source cannot
+  hide behind a green run, and the test fires from the other side if physics is seeded without widening
+  the base to 6/6. `NondeterminismCensus_MatchesOnTheType_NotOnOneSyntacticShape` pins the census's own
+  contract in both directions. The ENGINE systems a demo composes are outside this scope: they carry no
+  RNG today, and a lint covering them belongs to the engine, not to this precheck.
 - **Never loosened:** the comparer itself has no tolerance knob and skips no frames, by design.
 
 ## Interaction matrix

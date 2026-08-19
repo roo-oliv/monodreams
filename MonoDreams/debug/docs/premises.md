@@ -404,12 +404,27 @@ sets `CursorInputSystem.SkipHardwareRead` (the mouse), flips the shared
 `DemoKeyboard.Read` gate that every demo screen's keyboard reader goes
 through, and sets `SkipHardwareRead` on each `AKeyboardInputHandlingSystem`
 in the screen (the demo's own action mapper and the editor's key surface).
-Off the protocol `DemoKeyboard.Read` IS `Keyboard.GetState`, so a windowed
-demo is unchanged. Engaging is **observable**: the run logs
+The **editor overlay's own keyboard readers** are on the same gate, but not
+through `Engage`: they are constructed with it. `EditorOverlay` takes one
+`readKeyboard` seam and threads it to all six (both panels, the dialog, the
+context menu, the modal transform, the shortcut chord tracker), and
+`DemoEditor` passes `DemoKeyboard.Read` — because the editor flag is what the
+protocol turns ON, those six run `RunNormally` in every precheck run and are
+inert only while no editor UI is open. "Today's op plan opens no panel" is not
+a property the protocol may rest on: one cursor op over the chrome plus a held
+chord key is a byte diff in one run of two. Off the protocol `readKeyboard`
+resolves to `Keyboard.GetState` exactly as before, so a windowed demo is
+unchanged. Engaging is **observable**: the run logs
 `Deterministic input: hardware reads skipped on '<screen>'`, the precheck
 asserts that line, and a lint forbids `Keyboard.GetState()` / `Mouse.GetState()`
-in any demo screen source — so losing a leg is a red test rather than an
-intermittent byte diff blamed on the change under test.
+in any scanned demo source except the seam file itself, requires an engine
+reader whose seam DEFAULTS to the hardware to be constructed with one
+(`TextInputSystem.KeyboardStateProvider`, `KeyChordTracker`'s seam argument),
+and requires every `AKeyboardInputHandlingSystem` subclass a screen constructs
+to reach `Engage`'s argument list — `Engage` logs its line whether or not a
+given system was handed to it, so the run-time assertion alone cannot see an
+omission. Losing a leg is therefore a red test rather than an intermittent
+byte diff blamed on the change under test.
 
 The precheck's scope is itself pinned. Every screen the host can boot is
 either run by the precheck or named — with the reason it cannot be — in the
@@ -417,21 +432,30 @@ precheck's own exclusion list, and a test compares that pair against the
 host's screen registry. So "the demos are byte-reproducible" always says how
 many screens it covers, and a screen added later (or dropped from the run
 list) fails loudly instead of narrowing the claim in silence. Today the one
-exclusion is the physics demo's unseeded `Random`, and that "one" is checked
-rather than believed: a second test scans every `.cs` file in every covered
-screen's demo DIRECTORY (not one file per screen — a demo split in two would
-leave half unscanned) and fails on an RNG whose sequence nothing pins, even
-when nothing currently consumes it. It matches on the type, not on one
-syntactic shape: `new Random()`, `Random.Shared`, a target-typed `new()`
-assigned to a `Random`-typed member (nullable or assigned in a constructor
-body), and any seed that is not a compile-time integer constant — a
-`Environment.TickCount` seed is no better than none. A dormant RNG (the camera
-demo's hit-shake jitter, seeded since) reds a later run the moment an op plan
-reaches it, while every record still names physics. Seeding an excluded screen
-without widening the covered set fails the same test from the other side. The
-claim's scope is exactly that: the demo screen SOURCES. The engine systems a
-demo composes are outside it — they carry no RNG today, and a lint covering
-them belongs to the engine, not to this precheck.
+exclusion is the physics demo's unseeded `Random`, its cause is recorded as a
+typed `ExclusionCause` rather than a sentence (so rewording the entry cannot
+disable the converse check that reads it), and that "one" is checked rather
+than believed: a second test scans every `.cs` file of every covered screen's
+demo DIRECTORY (not one file per screen — a demo split in two would leave half
+unscanned) PLUS the demo-owned sources every screen composes —
+`MonoDreams.Demos/UI` and the host root (`Game1`, `DemoKeyboard`, `DemoEditor`,
+the headless clock) — and fails on a value the next run will not reproduce,
+even when nothing currently consumes it. RNGs are matched on the type, not on
+one syntactic shape: `new Random()`, `Random.Shared`, a target-typed `new()`
+reaching a `Random` in any of its shapes (nullable, constructor body, property
+initialiser, `??=`, expression body, collection expression), and any seed that
+is not a compile-time integer constant — an `Environment.TickCount` seed is no
+better than none, and a seed qualified by a type the scan never saw declared is
+not resolvable and counts as unpinned. The census is not RNG-only: a wallclock
+or GUID read (`DateTime.Now`, `Guid.NewGuid()`, `Environment.TickCount`,
+`Stopwatch.GetTimestamp()`) makes scene content per-process in exactly the same
+way and fails the same test. A dormant source (the camera demo's hit-shake
+jitter, seeded since) reds a later run the moment an op plan reaches it, while
+every record still names physics. Seeding an excluded screen without widening
+the covered set fails the same test from the other side. The claim's scope is
+exactly that: the sources the demos OWN. The engine systems a demo composes are
+outside it — they carry no RNG today, and a lint covering them belongs to the
+engine, not to this precheck.
 
 **Why:** the whole point of the headless Demos path (issue #28) is to let an
 agent verify its own work without a human, which requires that re-running the
@@ -473,20 +497,28 @@ holds the scope, failing when a registered demo screen is neither run nor
 excluded-with-a-reason (and cross-checking the registry against `Game1`'s
 `RegisterScreen` call sites, so a screen registered from a raw literal cannot be
 bootable-but-unscanned);
-`Precheck_CoveredScreensSeedEveryRandom_AndTheExclusionReasonStillHolds` holds
-the exclusion's content, failing on an unpinned `Random` in a covered screen's
-demo directory (dormant included) or on an excluded screen whose stated reason
-no longer applies; and
+`Precheck_CoveredScreensPinEveryNondeterministicSource_AndTheExclusionReasonStillHolds`
+holds the exclusion's content, failing on an unpinned `Random` or entropy read
+in a covered screen's scanned sources (dormant included) or on an excluded
+screen whose typed cause no longer applies —
+`NondeterminismCensus_MatchesOnTheType_NotOnOneSyntacticShape` is the census's
+own contract, pinning both directions on synthetic sources (each escaping shape
+must be caught; each properly pinned seed must not be flagged); and
 `Precheck_EveryDemoScreenRoutesHardwareInputThroughTheProtocol` holds the input
-legs, failing on a direct `Keyboard.GetState()`/`Mouse.GetState()` in a demo
-screen source or on a screen that builds a cursor pipeline without calling
-`DemoKeyboard.Engage`.
+legs, failing on a direct `Keyboard.GetState()`/`Mouse.GetState()` outside the
+seam file, on a `TextInputSystem`/`KeyChordTracker` built without its keyboard
+seam, on an `AKeyboardInputHandlingSystem` subclass the screen constructs but
+never hands to `Engage`, or on a screen that builds a cursor pipeline without
+calling `DemoKeyboard.Engage`.
 **Depends on:** "Headless Demos renders every frame; capture reads the
 backbuffer" (there are pixels to compare only because `Draw` is not a no-op);
 "Headless heap samples measure the live set, not transient churn" (the `Heap
 sample:` line is what makes the clock readable from outside the process);
 cursor — "`SkipDerivation` lets an injection channel own the cursor's derived
-positions" (the `SkipHardwareRead` half of the input protocol); foundation —
+positions" (the `SkipHardwareRead` half of the input protocol); level-editor —
+"The overlay reads the keyboard at ONE injected seam; the per-system default is
+the hardware" (the editor half of the keyboard leg, which the protocol turns on
+by requiring the editor run flag); foundation —
 "A suppressed `Logger` line costs nothing, and an emitted one is
 byte-identical" (the `[GT …]` stamp the clock feeds).
 

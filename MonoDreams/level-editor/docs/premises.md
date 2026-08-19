@@ -2353,6 +2353,40 @@ menu Shift+A opens + the `editor.contextMenu` weave this follows), "The editor's
 "Bounded undo with drag-coalescing" (the shared `EditorHistory` Undo/Redo drive), "Editor-overlay entities are
 standalone; delete snapshots the disposed sub-graph" (the `DeleteSelection` Delete drives).
 
+## The overlay reads the keyboard at ONE injected seam; the per-system default is the hardware
+
+Six editor systems read the hardware keyboard — both `EditorPanelSystem`s (the Entities/Systems/Scenes
+filter and the Inspector's inline edit), `EditorDialogSystem`, `EditorContextMenuSystem`,
+`ModalTransformSystem` and `EditorShortcutSystem` (whose `KeyChordTracker` reads through the same
+argument). Each exposes an optional `Func<KeyboardState>? getKeyboardState` that **defaults to
+`Keyboard.GetState`**, and `EditorOverlay` takes ONE `readKeyboard` parameter that it forwards to all six.
+A host that needs input determinism pins the whole editor surface by constructing the overlay with its own
+gate (the Demos host passes `DemoKeyboard.Read`); a windowed game passes nothing and is unchanged.
+
+Headlessness does **not** silence these readers. They are woven `RunNormally`, so under the editor run
+flag they run in every frame of a headless session and are inert only while no editor UI is open — a
+property of the op plan in use, never of the composition. One cursor op over the chrome plus a key held
+during one of two runs is a real behaviour difference between them.
+
+**Why:** the editor run flag is exactly what a deterministic headless protocol turns ON (the byte-identity
+precheck requires `MONODREAMS_EDITOR=1` plus an op plan), so "the editor is only for humans at a desk" is
+false precisely where determinism is claimed. One seam per overlay — instead of six defaults — is also the
+same "pin input at ONE place" rule the cursor (`CursorInputSystem.SkipHardwareRead`) and the game key
+surfaces (`AKeyboardInputHandlingSystem.SkipHardwareRead`) already follow.
+**Breaks:** a new keyboard-reading editor system constructed without the seam silently reads the developer's
+keyboard under a protocol that reports itself engaged; a chord fired that way (Delete, ⌘Z, G/S/R) mutates
+the scene in ONE of two byte-identity runs, and the resulting pixel diff is blamed on the change under
+test rather than on the keyboard.
+**Tests:** `MonoDreams.Tests/LevelEditor/EditorKeyboardSeamLintTests.cs`
+(`EveryKeyboardReaderTheOverlayBuilds_IsHandedTheOverlaysOneSeam` source-scans the module for the seam
+parameter and fails on any overlay construction that omits it;
+`TheShortcutSystemForwardsItsSeamToTheChordTracker` closes the one nested reader).
+**Depends on:** this file — "The editor's keyboard shortcuts are ONE chord table …" (the chord surface this
+seam feeds), "The editor run flag composes the always-on editor …" (why these systems exist in a headless
+run at all); foundation — "Key chords fire on an exact-modifier press edge; `PlatformCommand` resolution is
+injected" (the tracker seam); debug — "Headless Demos advance a deterministic fixed-step clock" (the
+byte-identity protocol that consumes this).
+
 ## The modal transform (G/S/R) owns the pointer + keyboard for one coalesced, undoable session
 
 Blender's `G`/`S`/`R` enter a **modal transform** over the current selection (`ModalTransformSystem`,
