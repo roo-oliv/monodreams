@@ -1,7 +1,10 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Runtime.CompilerServices;
+using DefaultEcs;
 using Microsoft.Xna.Framework;
 using MonoDreams.Debug;
 using MonoDreams.Platform;
@@ -35,6 +38,11 @@ namespace MonoDreams.Tests;
 /// installed — the failure message of the hygiene test, and the payload of
 /// <c>MONODREAMS_TEST_REPORT_LEAKS=1</c> when hunting the next one.</para>
 ///
+/// <para><b>One entry is not the engine's.</b> <see cref="Reset"/> also empties DefaultEcs's static
+/// query-filter memo cache — see <c>ResetEcsQueryFilterCache</c> for the upstream key collision that
+/// makes a shared cache able to hand one test's predicate to another test's query. It is listed here
+/// for the same reason as the rest: it is process-wide, mutable, and survives a <c>World</c>.</para>
+///
 /// <para><b>Adding a new static to the engine?</b> Add it here in the same PR. A process-wide mutable
 /// that this file does not know about is a flake waiting for the right shuffle.</para>
 /// </summary>
@@ -44,6 +52,27 @@ public static class ProcessWideState
     private static Color _defaultClearColor = FinalDrawSystem.ClearColor;
     private static Color _defaultLetterboxColor = FinalDrawSystem.LetterboxColor;
     private static float _defaultReportInterval = SystemProfiler.ReportInterval;
+
+    /// <summary>
+    /// DefaultEcs's own process-wide mutable: the <c>static</c> memo cache in
+    /// <c>DefaultEcs.Internal.EntityQueryFilterFactory</c> that maps a query's filter to the
+    /// <c>Predicate&lt;ComponentEnum&gt;</c> an <see cref="EntitySet"/> is built from. It is
+    /// <c>internal</c>, so reflection is the only handle; the field is resolved once and the value is
+    /// read per call because the library assigns the dictionary lazily.
+    /// </summary>
+    private static readonly FieldInfo? EcsQueryFilterCacheField = typeof(World).Assembly
+        .GetType("DefaultEcs.Internal.EntityQueryFilterFactory")
+        ?.GetField("_filters", BindingFlags.Static | BindingFlags.NonPublic);
+
+    /// <summary>False once a DefaultEcs upgrade renames or moves the cache — at which point
+    /// <see cref="Reset"/> silently stops clearing it. <c>EcsQueryFilterCacheTests</c> owns the
+    /// loud failure so the other ~1500 tests do not have to carry the check.</summary>
+    public static bool EcsQueryFilterCacheIsReachable => EcsQueryFilterCacheField != null;
+
+    /// <summary>How many predicates the DefaultEcs filter cache currently holds, or -1 when the cache
+    /// is unreachable. Only a test asserts on this.</summary>
+    public static int EcsQueryFilterCacheCount =>
+        EcsQueryFilterCacheField?.GetValue(null) is IDictionary filters ? filters.Count : -1;
 
     /// <summary>
     /// Captures the shipped defaults BEFORE any test runs. A module initializer is the only hook
@@ -104,8 +133,44 @@ public static class ProcessWideState
         FinalDrawSystem.ClearColor = _defaultClearColor;
         FinalDrawSystem.LetterboxColor = _defaultLetterboxColor;
 
+        ResetEcsQueryFilterCache();
+
         ResetLogger();
         PlatformServices.Current = _defaultPlatform; // last: ResetLogger borrows the socket
+    }
+
+    /// <summary>
+    /// Empties DefaultEcs's static query-filter memo cache, so a predicate built by one test can never
+    /// be handed to a query in another.
+    ///
+    /// <para><b>Why a cache needs resetting at all.</b> The cache is keyed by a string built as
+    /// <c>$"{withFilter} {withoutFilter} {either} {either}"</c>, and <c>ComponentEnum.ToString()</c>
+    /// reinterprets the raw <c>uint[]</c> bitset as UTF-16 — so a component whose flag lands on bit 5
+    /// or 21 of a word renders as literally <c>' '</c>, the same character as the separator. Two
+    /// different rules can therefore flatten to the same key, and the second one silently runs on the
+    /// first one's predicate. Measured collision: <c>With&lt;A&gt;().With&lt;B&gt;()</c> and
+    /// <c>With&lt;A&gt;().Without&lt;C&gt;()</c> both key to <c>[7,0,32,0,32,32,32]</c> when A is bit 2,
+    /// C is bit 21 and B is bit 37 — whichever query is built first wins, and the loser matches
+    /// nothing. This is an upstream defect (present in 0.17.2, 0.18.0-beta01 and upstream master); the
+    /// real fixes are an impossible separator or a non-string key, both of which live in the library.
+    /// </para>
+    ///
+    /// <para><b>Why that makes it this file's problem.</b> Which pair collides depends on the global
+    /// <c>ComponentFlag</c> assignment order, which depends on the order the assembly's classes run
+    /// in — the exact "fails under one shuffle, green under the next" signature of issue #114, whose
+    /// residual failure the foundation premise already records as living "one layer down, in a
+    /// corrupted DefaultEcs <c>EntitySet</c>". Clearing between tests does not fix the library, but it
+    /// confines a poisoned key to the single test that built it, which is precisely the guarantee the
+    /// rest of this class provides for the engine's own statics.</para>
+    ///
+    /// <para>Safe as a plain <c>Clear</c>: the dictionary is a pure memo — every entry is
+    /// reconstructible from the query that asked for it — and <c>xunit.runner.json</c> disables
+    /// collection parallelism, so no query is being built while this runs.</para>
+    /// </summary>
+    private static void ResetEcsQueryFilterCache()
+    {
+        if (EcsQueryFilterCacheField?.GetValue(null) is not IDictionary filters) return;
+        lock (filters) filters.Clear();
     }
 
     /// <summary>
