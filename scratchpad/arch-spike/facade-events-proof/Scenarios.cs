@@ -100,6 +100,7 @@ internal static class Scenarios
         MutationInsideAddedHandler(report);
         MassParserShape(report);
         WorldTeardownCascade(report);
+        WorldTeardownWithSweepingHandler(report);
     }
 
     // ===========================================================================================
@@ -689,40 +690,205 @@ internal static class Scenarios
 
     // ===========================================================================================
     // S7 — world teardown: reproduces the MEASURED DefaultEcs cascade that contradicts item 50.
+    //
+    // The fixture mirrors the measurement harness's M4 exactly, because a naive one cannot tell the
+    // candidate orders apart:
+    //   * ONE carrier holds TWO subscribed component types, INTERLEAVED between single-component
+    //     carriers — so "ComponentRemoved grouped by component pool" and "…walked per entity"
+    //     produce different logs instead of the same one;
+    //   * an entity id is RECYCLED before teardown, so creation order and entity-id order diverge
+    //     and "EntityDisposed in creation order" stops being unfalsifiable;
+    //   * the whole SEQUENCE is asserted, not per-type counts, which is the only assertion shape
+    //     that can fail when the order is wrong.
     // ===========================================================================================
     private static void WorldTeardownCascade(ProofReport report)
     {
-        report.Scenario("S7 — world.Dispose fires the full cascade (contract item 50 says event-silent; DefaultEcs measures otherwise)");
+        report.Scenario("S7 — world.Dispose fires the full cascade, in the measured ORDER (item 50 says event-silent)");
 
         var world = EcsWorld.Create();
         var log = new List<string>();
 
-        world.SubscribeEntityDisposed((in Entity _) => log.Add("EntityDisposed"));
-        world.SubscribeEntityComponentRemoved((in Entity _, in Transform __) => log.Add("ComponentRemoved(Transform)"));
-        world.SubscribeEntityComponentRemoved((in Entity _, in AudioSource value) => log.Add($"ComponentRemoved(AudioSource {value.Cue})"));
+        // Subscription order mints the facade's component-type ids: Transform = 0, AudioSource = 1.
+        world.SubscribeEntityDisposed((in Entity entity) => log.Add($"EntityDisposed({Mark(entity)})"));
+        world.SubscribeEntityComponentRemoved((in Entity entity, in Transform value) =>
+            log.Add($"Removed(Transform #{value.X} on {Mark(entity)})"));
+        world.SubscribeEntityComponentRemoved((in Entity entity, in AudioSource value) =>
+            log.Add($"Removed(AudioSource {value.Cue} on {Mark(entity)})"));
         world.SubscribeWorldComponentRemoved((EcsWorld _, in LevelData __) => log.Add("WorldComponentRemoved(LevelData)"));
 
-        for (var i = 0; i < 3; i++) world.CreateEntity().Set(new Transform { X = i, Y = i });
+        var one = world.CreateEntity();
+        one.Set(new Transform { X = 1f, Y = 1f });
 
-        var carrier = world.CreateEntity();
-        carrier.Set(new AudioSource { Cue = "music-loop", Looping = true });
+        // The TWO-component carrier, second of five — the discriminator between pool-grouped and
+        // per-entity order (AudioSystem.cs:133-137 is the real reader of this leg).
+        var two = world.CreateEntity();
+        two.Set(new Transform { X = 2f, Y = 2f });
+        two.Set(new AudioSource { Cue = "music-loop", Looping = true });
+
+        var scratch = world.CreateEntity();
+        scratch.Set(new Transform { X = 90f, Y = 90f });
+
+        var three = world.CreateEntity();
+        three.Set(new Transform { X = 3f, Y = 3f });
+
+        scratch.Dispose();   // frees the LOW id that "four" is about to recycle
+        report.Check("an entity disposed BEFORE teardown reports once, there and then",
+            string.Join(" | ", log), "EntityDisposed(#90) | Removed(Transform #90 on #90)");
+        log.Clear();
+
+        var four = world.CreateEntity();
+        four.Set(new Transform { X = 4f, Y = 4f });
+
         world.Set(new LevelData { Identifier = "Level_0" });
+
+        var held = world.GetEntities().With<Transform>().AsSet();
+        report.Check("membership before teardown", held.GetEntities().Length, 4);
+        report.CheckTrue("the last-created entity recycled a LOWER id, so creation order != id order",
+            four.Handle.Id < three.Handle.Id);
 
         world.Dispose();
 
-        report.Observe("event sequence", string.Join(", ", log));
-        report.Check("EntityDisposed per live entity", Occurrences(log, "EntityDisposed"), 4);
-        report.Check("ComponentRemoved per struct component", Occurrences(log, "ComponentRemoved(Transform)"), 3);
-        report.Check("ComponentRemoved for the managed carrier (AudioSystem.cs:133-137 runs)", Occurrences(log, "ComponentRemoved(AudioSource music-loop)"), 1);
-        report.Check("WorldComponentRemoved for the singleton", Occurrences(log, "WorldComponentRemoved(LevelData)"), 1);
-        report.Check("total events on teardown (item 50 predicts 0)", log.Count, 9);
+        var sequence = string.Join(" | ", log);
+        report.Observe("event sequence", sequence);
+
+        // Measured on DefaultEcs 0.18.0-beta01 by the sibling harness (M4), on the same fixture:
+        //   EntityDisposed in ascending ENTITY-ID order — #1, #2, #4(recycled low id), #3 — NOT
+        //   creation order; then ComponentRemoved POOL-GROUPED (every Transform, then the single
+        //   AudioSource, which belongs to the SECOND carrier); then world components.
+        report.Check("the teardown sequence is the measured DefaultEcs one, in order", sequence,
+            "EntityDisposed(#1) | EntityDisposed(#2) | EntityDisposed(#4) | EntityDisposed(#3) | "
+            + "Removed(Transform #1 on #1) | Removed(Transform #2 on #2) | Removed(Transform #4 on #4) | "
+            + "Removed(Transform #3 on #3) | Removed(AudioSource music-loop on #2) | "
+            + "WorldComponentRemoved(LevelData)");
+        report.Check("EntityDisposed per live entity", Starting(log, "EntityDisposed"), 4);
+        report.Check("the pre-teardown entity is NOT reported a second time", Starting(log, "EntityDisposed(#90)"), 0);
+        report.Check("total events on teardown (item 50 predicts 0)", log.Count, 10);
+
+        // The teardown obligations the screen-teardown cell names, made observable instead of assumed.
+        report.Check("a query held across teardown reads EMPTY, not stale dead handles", held.GetEntities().Length, 0);
+        report.Check("a disposed world holds no subscriptions", world.SubscriberCount, 0);
+        report.Check("a disposed world holds no query registrations", world.QueryCount, 0);
+        report.CheckTrue("every pre-teardown handle is dead", AllDead(new[] { one, two, three, four }));
+
         report.Note("Item 50 must be restated before wave 1 writes its contract test: DefaultEcs 0.18.0-beta01 " +
-                    "fires this same 9-event cascade, so 'event-silent' would be a behaviour CHANGE, not parity.");
+                    "fires this same 10-event cascade in this same order, so 'event-silent' would be a " +
+                    "behaviour CHANGE, not parity. The ORDER is facade-imposed on both axes: entity id for " +
+                    "the walk (Arch enumerates reversed — S0) and registration id for the pools (Arch's " +
+                    "archetype signature order is backend-defined).");
+        report.Note("Post-teardown query membership and subscription clearing are facade GUARANTEES, not " +
+                    "parity: DefaultEcs was measured (M6) to leave EntitySet.Count stale after world.Dispose " +
+                    "and to throw NullReferenceException when that set is enumerated. Nothing in the engine " +
+                    "reads a set after teardown, so defining the answer costs no behaviour.");
+    }
+
+    // ===========================================================================================
+    // S8 — item 41 AT TEARDOWN: the LDtk unload sweep runs while world.Dispose is already firing.
+    //
+    // This is not hypothetical. LDtkTileParserSystem.cs:42 subscribes the world-component Removed
+    // leg and CleanupTileEntities (:145-155) mass-calls entity.Dispose(); at world teardown that
+    // handler runs against entities the cascade is already reporting. S6 covers the sweep during
+    // normal play; this covers it during teardown, which S6 and S7 both leave unasserted.
+    // ===========================================================================================
+    private static void WorldTeardownWithSweepingHandler(ProofReport report)
+    {
+        report.Scenario("S8 — a handler that mass-disposes entities DURING world.Dispose (the LDtk unload sweep)");
+
+        // --- leg A: the engine's real shape — the sweep hangs off world-component Removed ---------
+        {
+            var world = EcsWorld.Create();
+            var log = new List<string>();
+            var carriers = new List<Entity>();
+
+            world.SubscribeEntityDisposed((in Entity _) => log.Add("EntityDisposed"));
+            world.SubscribeEntityComponentRemoved((in Entity _, in Transform __) => log.Add("Removed(Transform)"));
+            world.SubscribeWorldComponentRemoved((EcsWorld _, in LevelData __) =>
+            {
+                log.Add("WorldComponentRemoved");
+                var aliveNow = 0;
+                foreach (var carrier in carriers)
+                {
+                    if (carrier.IsAlive) aliveNow++;
+                }
+
+                report.Check("leg A: the sweep still sees its entities ALIVE at teardown", aliveNow, 3);
+                foreach (var carrier in carriers)
+                {
+                    if (carrier.IsAlive) carrier.Dispose();
+                }
+            });
+
+            for (var i = 0; i < 3; i++)
+            {
+                var tile = world.CreateEntity();
+                tile.Set(new Transform { X = i, Y = i });
+                carriers.Add(tile);
+            }
+
+            world.Set(new LevelData { Identifier = "Level_0" });
+            world.Dispose();
+
+            report.Observe("leg A event sequence", string.Join(", ", log));
+
+            // MEASURED on DefaultEcs (M5, same shape): 2 EntityDisposed and 2 ComponentRemoved per
+            // entity — the teardown walk reports them, then the sweep disposes them and reports them
+            // AGAIN. Double-firing is the incumbent behaviour, so the facade reproduces it rather
+            // than "fixing" it behind an unmeasured guard.
+            report.Check("leg A: EntityDisposed, 2 per entity (DefaultEcs parity)", Occurrences(log, "EntityDisposed"), 6);
+            report.Check("leg A: ComponentRemoved, 2 per entity (DefaultEcs parity)", Occurrences(log, "Removed(Transform)"), 6);
+            report.CheckTrue("leg A: every carrier is dead once Dispose returned", AllDead(carriers.ToArray()));
+            report.Note("Wave 1 owns this as a REAL hazard, not a curiosity: AudioSystem.OnAudioSourceRemoved and " +
+                        "the LDtk sweep both run twice at world teardown TODAY. Item 50's restatement has to say " +
+                        "which of the two is the contract.");
+        }
+
+        // --- leg B: the same sweep from the EntityDisposed leg — the recursion case ---------------
+        {
+            var world = EcsWorld.Create();
+            var log = new List<string>();
+            var carriers = new List<Entity>();
+
+            world.SubscribeEntityDisposed((in Entity _) =>
+            {
+                log.Add("EntityDisposed");
+                foreach (var carrier in carriers)
+                {
+                    if (carrier.IsAlive) carrier.Dispose();
+                }
+            });
+            world.SubscribeEntityComponentRemoved((in Entity _, in Transform __) => log.Add("Removed(Transform)"));
+
+            for (var i = 0; i < 3; i++)
+            {
+                var tile = world.CreateEntity();
+                tile.Set(new Transform { X = i, Y = i });
+                carriers.Add(tile);
+            }
+
+            world.Dispose();
+
+            report.Observe("leg B event sequence", string.Join(", ", log));
+            report.Check("leg B: the recursion TERMINATES (per-entity guard), EntityDisposed total", Occurrences(log, "EntityDisposed"), 4);
+            report.Check("leg B: exactly one ComponentRemoved per entity", Occurrences(log, "Removed(Transform)"), 3);
+            report.CheckTrue("leg B: every carrier is dead once Dispose returned", AllDead(carriers.ToArray()));
+            report.Note("DefaultEcs 0.18.0-beta01 does NOT terminate on this leg: the entity reads IsAlive == true " +
+                        "inside its own EntityDisposed handler and disposing it republishes with no re-entrancy " +
+                        "guard, so an uncapped sweep overflows the stack (measured — the harness depth-caps it to " +
+                        "stay runnable). The facade's per-entity _disposing guard bounds it. That is a deliberate " +
+                        "improvement wave 1 must keep, and the only one on this leg.");
+        }
     }
 
     // ------------------------------------------------------------------------------------ helpers
 
     private static string Last(List<string> log) => log.Count == 0 ? "<none>" : log[log.Count - 1];
+
+    /// <summary>
+    /// Identity for the teardown log — the entity's OWN marker, carried in <c>Transform.X</c>. A
+    /// handler that discards the entity (or logs only a hash) cannot tell "creation order" from
+    /// "entity-id order" apart, which is exactly what S7's fixture exists to distinguish.
+    /// </summary>
+    private static string Mark(in Entity entity) =>
+        entity.IsAlive && entity.Has<Transform>() ? $"#{entity.Get<Transform>().X}" : "#?";
 
     private static bool Contains(EntityQuery query, in Entity entity)
     {
@@ -761,6 +927,17 @@ internal static class Scenarios
         foreach (var line in log)
         {
             if (line == value) count++;
+        }
+
+        return count;
+    }
+
+    private static int Starting(List<string> log, string prefix)
+    {
+        var count = 0;
+        foreach (var line in log)
+        {
+            if (line.StartsWith(prefix, StringComparison.Ordinal)) count++;
         }
 
         return count;

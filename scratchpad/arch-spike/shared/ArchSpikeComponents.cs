@@ -47,3 +47,17 @@ internal sealed class Payload
     public string Name;
     public float Depth;
 }
+
+/// <summary>
+/// Sacrificial component type, used ONLY by the last probe in <see cref="ArchExercise"/>: the one
+/// that asks whether Arch's component-type registry can be reset (contract item C12's
+/// <c>ProcessWideState.Reset</c> claim). That probe deliberately breaks this type's registry entry,
+/// so nothing else may ever use it.
+/// </summary>
+#if ARCH_AOT_GENERATOR
+[Arch.AOT.SourceGenerator.Component]
+#endif
+internal struct Doomed
+{
+    public int N;
+}

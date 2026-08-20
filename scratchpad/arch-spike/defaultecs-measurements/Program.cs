@@ -237,14 +237,26 @@ internal static class Program
         }
 
         MeasureWorldDisposeEventSilence();
+        MeasureWorldDisposeReentrantHandler();
+        MeasureEntitySetAfterWorldDispose();
     }
 
     // ---------------------------------------------------------------------------------------
-    // M4 (contract item 50) — is world.Dispose event-silent?
+    // M4 (contract item 50) — is world.Dispose event-silent, and in WHAT ORDER does it fire?
     //
-    // Item 50 asserts it is ("no per-component/singleton Removed, no cascade ... matching
+    // Item 50 asserts it is silent ("no per-component/singleton Removed, no cascade ... matching
     // DefaultEcs"). The adjacent-facts pass said otherwise, so this measures it on its own world
     // with every reactive verb wired, several carriers, and the entity liveness the handler sees.
+    //
+    // The fixture is built so the ORDER is observable instead of degenerate — a cascade grouped by
+    // component pool and a cascade walked per entity would log identically on a naive fixture:
+    //
+    //   * ONE carrier holds TWO subscribed component types (EntityMarker + ManagedPayload),
+    //     interleaved between single-component carriers (A, AB, A). Pool-grouped =>
+    //     "…Marker, Marker, Marker … Managed"; per-entity => "…Marker, Marker+Managed, Marker".
+    //   * an id is RECYCLED before teardown, so creation order and entity-id order DIVERGE and
+    //     "EntityDisposed in creation order" becomes a falsifiable claim rather than a tautology.
+    //   * every handler logs the entity's OWN marker value, so the sequence carries identity.
     // ---------------------------------------------------------------------------------------
     private static void MeasureWorldDisposeEventSilence()
     {
@@ -253,10 +265,157 @@ internal static class Program
         var log = new List<string>();
         var world = new World();
 
-        world.SubscribeEntityDisposed((in Entity e) => log.Add($"EntityDisposed(#{e.GetHashCode()})"));
-        world.SubscribeEntityComponentRemoved((in Entity e, in EntityMarker v) => log.Add($"ComponentRemoved({v.Value}, IsAlive={e.IsAlive})"));
-        world.SubscribeEntityComponentRemoved((in Entity _, in ManagedPayload v) => log.Add($"ComponentRemoved(managed:{v.Name})"));
+        world.SubscribeEntityDisposed((in Entity e) => log.Add($"EntityDisposed({Identify(e)})"));
+        world.SubscribeEntityComponentRemoved((in Entity e, in EntityMarker v) => log.Add($"Removed(Marker {v.Value}, IsAlive={e.IsAlive})"));
+        world.SubscribeEntityComponentRemoved((in Entity e, in ManagedPayload v) => log.Add($"Removed(Managed {v.Name} on {Identify(e)})"));
         world.SubscribeWorldComponentRemoved((World _, in WorldMarker v) => log.Add($"WorldComponentRemoved({v.Value})"));
+
+        // --- creation order 1,2,3 ; entity 2 is the TWO-component carrier ------------------------
+        var one = world.CreateEntity();
+        one.Set(new EntityMarker { Value = 1 });
+
+        var two = world.CreateEntity();
+        two.Set(new EntityMarker { Value = 2 });
+        two.Set(new ManagedPayload { Name = "music-loop" });   // AudioSourceComponent's shape
+
+        // --- a scratch entity, freed AFTER entity 3 exists so its id is the LOW one still free ----
+        var scratch = world.CreateEntity();
+        scratch.Set(new EntityMarker { Value = 90 });
+        var scratchId = scratch.GetHashCode();
+
+        var three = world.CreateEntity();
+        three.Set(new EntityMarker { Value = 3 });
+
+        scratch.Dispose();
+        Report("events fired by the pre-teardown entity.Dispose", Render(log));
+        log.Clear();
+
+        // Created LAST, but takes the recycled (LOWER) id. That is what makes creation order and
+        // entity-id order distinguishable in the teardown log below — without it the two orders
+        // coincide by construction and "EntityDisposed in creation order" is unfalsifiable.
+        var four = world.CreateEntity();
+        four.Set(new EntityMarker { Value = 4 });
+
+        world.Set(new WorldMarker { Value = 99 });
+
+        Report("freed scratch id", scratchId);
+        Report("ids by creation order (markers 1,2,3,4)",
+            $"{one.GetHashCode()}, {two.GetHashCode()}, {three.GetHashCode()}, {four.GetHashCode()}");
+        Report("=> creation order and id order DIVERGE?",
+            three.GetHashCode() > four.GetHashCode()
+                ? "YES (marker 4 was created last but recycled the lower id — the log below can tell them apart)"
+                : "NO (ids ascend with creation — the two orders are NOT distinguishable here)");
+
+        world.Dispose();
+
+        Report("events fired by world.Dispose", Render(log));
+        Report("=> world.Dispose IS EVENT-SILENT", log.Count == 0 ? "YES" : "NO");
+        Report("=> EntityDisposed order", string.Join(" ", Only(log, "EntityDisposed")));
+        Report("=> ComponentRemoved order (pool-grouped vs per-entity)", string.Join(" ", Only(log, "Removed(")));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // M5 — does a handler that DISPOSES entities during world.Dispose make the cascade fire twice?
+    //
+    // The engine has exactly this shape: LDtkTileParserSystem.cs:42 subscribes the world-component
+    // Removed leg and CleanupTileEntities (:145-155) mass-calls entity.Dispose(). At world teardown
+    // that handler runs while the same entities are being torn down, so the question "does each
+    // entity report once, or once per path" is a real facade obligation, not a curiosity.
+    // ---------------------------------------------------------------------------------------
+    private static void MeasureWorldDisposeReentrantHandler()
+    {
+        Section("M5 (item 50 / item 41) — a handler that disposes entities DURING world.Dispose");
+
+        foreach (var leg in new[] { "EntityDisposed leg", "WorldComponentRemoved leg (the engine's)" })
+        {
+            var log = new List<string>();
+            var world = new World();
+            var carriers = new List<Entity>();
+
+            // The sweep is DEPTH-CAPPED. Uncapped, the EntityDisposed leg overflows the stack:
+            // inside the handler the entity still reads IsAlive == true, so the sweep disposes it
+            // again, which republishes EntityDisposingMessage, which re-enters the handler — with no
+            // re-entrancy guard anywhere in DefaultEcs 0.18.0-beta01. The cap turns that unbounded
+            // recursion into an OBSERVATION (`sweeps stopped by the depth cap` > 0 means it recursed
+            // and would not have stopped on its own) while keeping this harness runnable.
+            const int MaxSweepDepth = 3;
+            var sweepDepth = 0;
+            var cappedSweeps = 0;
+
+            void SweepAll()
+            {
+                if (sweepDepth >= MaxSweepDepth)
+                {
+                    cappedSweeps++;
+                    return;
+                }
+
+                sweepDepth++;
+                foreach (var carrier in carriers)
+                {
+                    if (carrier.IsAlive) carrier.Dispose();
+                }
+
+                sweepDepth--;
+            }
+
+            world.SubscribeEntityDisposed((in Entity e) =>
+            {
+                log.Add($"EntityDisposed({Identify(e)})");
+                if (leg.StartsWith("EntityDisposed", StringComparison.Ordinal)) SweepAll();
+            });
+            world.SubscribeEntityComponentRemoved((in Entity _, in EntityMarker v) => log.Add($"Removed(Marker {v.Value})"));
+            world.SubscribeWorldComponentRemoved((World _, in WorldMarker _) =>
+            {
+                log.Add("WorldComponentRemoved");
+                var aliveNow = 0;
+                foreach (var carrier in carriers)
+                {
+                    if (carrier.IsAlive) aliveNow++;
+                }
+
+                log.Add($"(entities still alive when the world-component handler ran: {aliveNow})");
+                if (leg.StartsWith("WorldComponentRemoved", StringComparison.Ordinal)) SweepAll();
+            });
+
+            for (var i = 1; i <= 3; i++)
+            {
+                var e = world.CreateEntity();
+                e.Set(new EntityMarker { Value = i });
+                carriers.Add(e);
+            }
+
+            world.Set(new WorldMarker { Value = 99 });
+
+            try
+            {
+                world.Dispose();
+                Report($"[{leg}] events", Render(log));
+                Report($"[{leg}] EntityDisposed per entity (3 entities)", Count(log, "EntityDisposed") / 3d);
+                Report($"[{leg}] Removed(Marker) per entity (3 entities)", Count(log, "Removed(Marker") / 3d);
+                Report($"[{leg}] sweeps stopped by the depth cap", cappedSweeps);
+            }
+            catch (Exception ex)
+            {
+                Report($"[{leg}] world.Dispose THREW", ex.GetType().FullName + ": " + ex.Message);
+                Report($"[{leg}] events before the throw", Render(log));
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // M6 — what does a live EntitySet report AFTER world.Dispose?
+    //
+    // entity.Dispose drops the entity from every set synchronously (contract item 67, measured
+    // above). World teardown is the asymmetric case: the facade's queries have to answer the same
+    // way DefaultEcs' sets do, and "the same way" is only knowable by asking.
+    // ---------------------------------------------------------------------------------------
+    private static void MeasureEntitySetAfterWorldDispose()
+    {
+        Section("M6 (item 67) — what a live EntitySet reports after world.Dispose");
+
+        var world = new World();
+        var set = world.GetEntities().With<EntityMarker>().AsSet();
 
         for (var i = 1; i <= 3; i++)
         {
@@ -264,22 +423,31 @@ internal static class Program
             e.Set(new EntityMarker { Value = i });
         }
 
-        var withManaged = world.CreateEntity();
-        withManaged.Set(new ManagedPayload { Name = "loop" }); // AudioSourceComponent's shape
-        world.Set(new WorldMarker { Value = 99 });
+        Report("set.Count with 3 carriers", set.Count);
 
-        // An entity disposed BEFORE teardown must not be reported twice.
-        var early = world.CreateEntity();
-        early.Set(new EntityMarker { Value = 4 });
-        early.Dispose();
-
-        Report("events fired by the pre-teardown entity.Dispose", Render(log));
-        log.Clear();
+        var single = world.CreateEntity();
+        single.Set(new EntityMarker { Value = 9 });
+        Report("set.Count after a 4th carrier joins", set.Count);
+        single.Dispose();
+        Report("set.Count after ONE entity.Dispose (item 67 baseline)", set.Count);
 
         world.Dispose();
 
-        Report("events fired by world.Dispose", Render(log));
-        Report("=> world.Dispose IS EVENT-SILENT", log.Count == 0 ? "YES" : "NO");
+        try
+        {
+            Report("set.Count after world.Dispose", set.Count);
+            var aliveAfter = 0;
+            foreach (var e in set.GetEntities())
+            {
+                if (e.IsAlive) aliveAfter++;
+            }
+
+            Report("of those, still IsAlive", aliveAfter);
+        }
+        catch (Exception ex)
+        {
+            Report("reading the set after world.Dispose THREW", ex.GetType().FullName + ": " + ex.Message);
+        }
     }
 
     // ---------------------------------------------------------------------------------------
@@ -293,6 +461,40 @@ internal static class Program
     private static void Report(string label, object value) => Console.WriteLine($"   {label,-62} : {value}");
 
     private static string Render(List<string> log) => log.Count == 0 ? "(none)" : $"{log.Count}x [{string.Join(", ", log)}]";
+
+    /// <summary>
+    /// Identity for the teardown log: the entity's own marker value AND its DefaultEcs id. Logging
+    /// a hash alone cannot tell "creation order" from "entity-id order" apart once an id has been
+    /// recycled — which is exactly the ambiguity M4's fixture exists to remove.
+    /// </summary>
+    private static string Identify(in Entity entity)
+    {
+        var id = entity.GetHashCode();
+        if (entity.IsAlive && entity.Has<EntityMarker>()) return $"#{entity.Get<EntityMarker>().Value}/id{id}";
+        return $"#?/id{id}";
+    }
+
+    private static List<string> Only(List<string> log, string prefix)
+    {
+        var kept = new List<string>();
+        foreach (var line in log)
+        {
+            if (line.StartsWith(prefix, StringComparison.Ordinal)) kept.Add(line);
+        }
+
+        return kept;
+    }
+
+    private static int Count(List<string> log, string prefix)
+    {
+        var count = 0;
+        foreach (var line in log)
+        {
+            if (line.StartsWith(prefix, StringComparison.Ordinal)) count++;
+        }
+
+        return count;
+    }
 
     private struct WorldMarker
     {

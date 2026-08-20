@@ -36,6 +36,7 @@ internal static class ArchExercise
     {
         var report = new StringBuilder();
         var failures = 0;
+        var checks = 0;
 
         void Report(string label, object value) => report.AppendLine($"   {label,-52} : {value}");
 
@@ -45,8 +46,11 @@ internal static class ArchExercise
             report.AppendLine("-- " + title);
         }
 
+        // The run reports "N checks, M failed" (same shape as the sibling facade proof) so the
+        // recorded headline can be RECOUNTED from the artifact instead of taken on trust.
         void Check<T>(string label, T actual, T expected)
         {
+            checks++;
             var ok = EqualityComparer<T>.Default.Equals(actual, expected);
             if (!ok) failures++;
             report.AppendLine($"   [{(ok ? "ok  " : "FAIL")}] {label,-52} : {actual} (expected {expected})");
@@ -208,6 +212,90 @@ internal static class ArchExercise
             // registered component type falls over.
             world.Add(carriers[0], new Velocity { X = 3f, Y = 3f });
             Check("managed component survived archetype move", world.Get<Payload>(carriers[0]).Name, "draw-0");
+
+            // ----------------------- process-wide statics across World.Destroy (H9 / item C12)
+            //
+            // The deep-plan's H9 dimension-violation row makes this a wave-0 obligation in so many
+            // words: "C12 registers statics but Arch's World.Worlds/component-type registries may
+            // lack a reset API; wave-0 spike must prove World.Destroy (or equivalent) clears them".
+            // C12 itself promises ProcessWideState.Reset returns "Arch World.Worlds/component
+            // statics to baseline". Those are TWO registries with two different answers, and the
+            // negative control above already showed that guessing wrong about the component one is
+            // fatal — so both are measured here rather than assumed.
+            Section("process-wide statics across World.Destroy (H9, contract item C12)");
+
+            var worldSizeBaseline = World.WorldSize;
+            var registryBaseline = ComponentRegistry.Size;
+            Report("World.WorldSize (baseline: this exercise's world)", worldSizeBaseline);
+            Report("World.Worlds.Length (backing array)", World.Worlds.Length);
+            Report("ComponentRegistry.Size (baseline)", registryBaseline);
+
+            var extra = World.Create();
+            var extraId = extra.Id;
+            extra.Create(new Position { X = 1f, Y = 1f }, new Payload { Name = "aux", Depth = 1f });
+            Check("World.WorldSize after one extra World.Create", World.WorldSize, worldSizeBaseline + 1);
+
+            World.Destroy(extra);
+            Check("World.WorldSize back to baseline after Destroy", World.WorldSize, worldSizeBaseline);
+            Check("World.Worlds slot nulled by Destroy", World.Worlds[extraId] == null, true);
+
+            var reborn = World.Create();
+            Check("World.Destroy frees the world id for reuse", reborn.Id, extraId);
+            var rebornEntity = reborn.Create(new Position { X = 2f, Y = 2f }, new Payload { Name = "reborn", Depth = 2f });
+            Check("a world created AFTER Destroy still builds a managed archetype",
+                reborn.Get<Payload>(rebornEntity).Name, "reborn");
+            World.Destroy(reborn);
+            Check("World.WorldSize back to baseline again", World.WorldSize, worldSizeBaseline);
+
+            // The other half, and the one C12 gets wrong: the component-type registry is NOT
+            // world-scoped. It survives every Destroy, which is what makes the world above usable
+            // at all — and it is why "reset the component statics to baseline" cannot be a hook.
+            Check("ComponentRegistry.Size is unchanged by World.Destroy", ComponentRegistry.Size, registryBaseline);
+            Check("ComponentRegistry.Has<Payload>() survives World.Destroy", ComponentRegistry.Has<Payload>(), true);
+
+            // ...and there is no way to clear it anyway: Arch 2.1.0's only entry point for that is
+            // BROKEN. `Doomed` exists solely for this probe — it is left in a half-cleared state
+            // afterwards, so nothing else may ever touch it.
+            var doomedWorld = World.Create();
+            doomedWorld.Create(new Doomed { N = 1 });
+            Check("ComponentRegistry.Has<Doomed>() after first use", ComponentRegistry.Has<Doomed>(), true);
+            World.Destroy(doomedWorld);
+
+            var clearThrew = false;
+            var clearOutcome = "returned normally";
+            try
+            {
+                ComponentRegistry.Remove<Doomed>();
+            }
+            catch (Exception ex)
+            {
+                clearThrew = true;
+                clearOutcome = ex.GetType().Name + ": " + ex.Message;
+            }
+
+            Check("ComponentRegistry.Remove<T>() THROWS — Arch ships no working registry reset", clearThrew, true);
+            Report("ComponentRegistry.Remove<Doomed>() outcome", clearOutcome);
+            Report("ComponentRegistry.Has<Doomed>() after the clear", ComponentRegistry.Has<Doomed>());
+            Report("ComponentRegistry.Size after the clear", ComponentRegistry.Size);
+
+            // Whether the type still WORKS after the half-clear is target-dependent, so it is
+            // observed rather than checked: under the AOT generator the parallel ArrayRegistry was
+            // primed at module init and survives, while a JIT run (lazy registration) dies inside
+            // ArrayRegistry.GetArray with `ArgumentNullException (elementType)` — the negative
+            // control's failure mode, reproduced at runtime by a "reset".
+            var afterClear = World.Create();
+            var createOutcome = "created normally";
+            try
+            {
+                afterClear.Create(new Doomed { N = 2 });
+            }
+            catch (Exception ex)
+            {
+                createOutcome = ex.GetType().Name + ": " + ex.Message;
+            }
+
+            Report("first world.Create<Doomed> after the clear", createOutcome);
+            World.Destroy(afterClear);
         }
         catch (Exception ex)
         {
@@ -223,7 +311,7 @@ internal static class ArchExercise
         }
 
         report.AppendLine();
-        report.AppendLine(failures == 0 ? "== ALL CHECKS PASSED ==" : $"== {failures} CHECK(S) FAILED ==");
+        report.AppendLine($"== {checks} checks, {failures} failed ==");
         return (failures, report.ToString());
     }
 }
