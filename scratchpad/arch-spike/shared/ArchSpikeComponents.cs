@@ -61,3 +61,18 @@ internal struct Doomed
 {
     public int N;
 }
+
+/// <summary>
+/// The SECOND sacrificial component type, and it needs to be a second one: <see cref="Doomed"/> is
+/// spent on <c>ComponentRegistry.Remove&lt;T&gt;()</c>, which throws and leaves its entry
+/// half-removed, so it can no longer answer the next question — whether the OTHER
+/// <c>Remove</c> overload, <c>Remove(Type)</c>, works. A type whose entry is already broken cannot
+/// show that a clear succeeded. Like <see cref="Doomed"/>, nothing else may ever use this.
+/// </summary>
+#if ARCH_AOT_GENERATOR
+[Arch.AOT.SourceGenerator.Component]
+#endif
+internal struct Doomed2
+{
+    public int N;
+}

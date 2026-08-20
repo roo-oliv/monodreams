@@ -10,9 +10,9 @@ this tree rides the `scratchpad/` allowlist entry of the wave-1 `EcsBoundaryLint
 
 | Leg | Contract item | Result |
 |---|---|---|
-| Arch in a **KNI/BlazorGL WASM** head — builds, publishes (trimmed), **runs in Chrome** | 2 (C2) | **PASS** — 43/43 checks |
-| Arch under **NativeAOT** (`PublishAot=true` + `Arch.AOT.SourceGenerator`) — publishes and **runs** | 2 (C2) | **PASS** — 43/43 checks, but only with a namespace shim (see finding 1) |
-| Arch **process-wide statics** across `World.Destroy` (H9 / C12) | H9 row, C12 | measured over the **enumerated** set — five statics on `World` plus **both** component-type registries: one resets (and only for the shape it was asked about), one accumulates, one is untouched under a sentinel, two never shrink (§1, finding 6) |
+| Arch in a **KNI/BlazorGL WASM** head — builds, publishes (trimmed), **runs in Chrome** | 2 (C2) | **PASS** — 57/57 checks |
+| Arch under **NativeAOT** (`PublishAot=true` + `Arch.AOT.SourceGenerator`) — publishes and **runs** | 2 (C2) | **PASS** — 57/57 checks, but only with a namespace shim (see finding 1) |
+| Arch **process-wide statics** across `World.Destroy` / `world.Dispose` (H9 / C12) | H9 row, C12 | measured over the set enumerated **assembly-wide**, not just on `World` — 12 accumulating statics across six types, of which only the world half resets; both teardown verbs measured equivalent; the prescribed reset sweep **executed**; and Arch's one working clear entry point measured to break the type instead of resetting it (§1, finding 6) |
 | DefaultEcs **subscribe-replay + `NotifyChanged`** measurements | 42, 66 | measured — see the table below |
 | **Facade-fired events over Arch** (H7/D1) — Added/Changed(old,new)/Removed, singleton notifications, predicate membership, M10, the LDtk mass-parser shape, teardown (inert, sweeping, creating, re-entrant in both directions, throwing) | 3 (C3), 41 | **PASS** — 148/148 checks, exit 0 |
 
@@ -40,9 +40,9 @@ wave 1 writes the corresponding contract test. Anchors below are for whoever mak
 | **A4** | **D6** ("`Arch.AOT.SourceGenerator` yes (console/iOS AOT)"); packaging items 26/31/37 | registration is an AOT optimisation on the heads that need it | Registration is **mandatory** — without it the binary dies on the *first* `world.Create`, for plain structs too — and a source generator only sees its own compilation (§1, finding 2) | Name the obligation **per assembly that declares components**: `MonoDreams.dll`, every game assembly, every CLI-scaffolded project. That is wave-2 facade scope *and* wave-4 scaffolder/manifest-honesty scope; neither currently carries it. Narrow D6's scope too: WASM does **not** need it (§1, finding 3). |
 | **A5** | item **2**'s AOT leg | `Arch.AOT.SourceGenerator` works as shipped against the pinned Arch | 1.0.1 (the latest published version) emits Arch 1.x namespaces and fails `CS0103` against Arch 2.1.0; a 5-line forwarding shim restores it (§1, finding 1) | Item 2 is satisfied, but only *with* `shared/ArchCoreUtilsShim.cs`. Wave 2/3 must elect an owner — ship the shim beside the facade, vendor a fixed generator, or have the facade register component types itself (it already needs a type registry for `ReadAllComponents`). |
 | **A6** | item **42**'s conditional; deep-plan matrix rows `:1487-1488` and `:1976-1980` ("entity-level replays, singleton does not"); the foundation premise at `:2792` ("entity-level `SubscribeComponentAdded` replays existing state exactly as DefaultEcs") | entity-level subscriptions **replay** already-present components; only the singleton leg does not | **NO replay on any entity-level verb.** Two live carriers at subscribe time produce zero calls, and `SubscribeEntityComponentChanged` / `…Removed` do not replay either (§2, M2) | The parenthetical is backwards. Rows `:1487-1488` and `:1976-1980` and premise `:2792` should read *no replay, all three entity verbs* — the same answer the singleton leg already has. This is not cosmetic: a wave-1 facade built from the current wording ships spurious `Added` replay on every entity subscription, which is precisely the double-parse item 66's resolution was written to prevent. |
-| **A7** | **C12** ("`ProcessWideState.Reset` returns Arch `World.Worlds`/component statics to baseline"); the H9 dimension-violation row at deep-plan `:2732` (and `:2714`), which assigns the proof to wave 0 | one reset hook returns *both* Arch registries to baseline | **Five statics on `World`, enumerated rather than assumed** (§1, finding 6), plus `ComponentRegistry` — and they answer differently. `World.Destroy` DOES reset the world half — `World.WorldSize` returns to baseline, the `World.Worlds` slot is nulled and the world id is reused. The **component-type registry is process-lifetime**: it survives every `Destroy` unchanged, which is what keeps the next world usable — and Arch 2.1.0's only clearing entry point, `ComponentRegistry.Remove<T>()`, **throws `ArgumentNullException`** while leaving the entry half-removed, after which a lazily-registered target dies in `ArrayRegistry.GetArray` exactly like the AOT negative control. **And a third static never returns to baseline at all:** `World.Destroy` does not free an id, it **enqueues** it on the process-wide `World.RecycledWorldIds`, and `World.Create` dequeues — measured, two worlds freed high-id-first hand the **higher** id to the next `World.Create` (`2,1`, not `1,2`). `World.SharedJobScheduler` is a fourth — and "untouched by `Destroy`" is now **measured with a sentinel** written into the field rather than inferred from a `null` nothing ever set; `World.InitialCapacity` a fifth (mutable config constant). The registry half is also **two** stores, not one: `Arch.Core.ArrayRegistry` — the one the AOT negative control dies inside and the generator primes — is enumerated too, and its whole static surface is `Add()` + `GetArray(ComponentType, Int32)`: no size, no clear, no remove | Restate C12 as **"reset `World.Worlds` only"**, name the reset hook's SHAPE — it must walk `World.Worlds` by `Length` skipping nulls, never `for (i < World.WorldSize)`, because `WorldSize` is a live COUNT and destroying a non-highest id leaves a hole below a live world (measured: the naive walk reads one null and leaks one live world) — and name **both** component-type registries as deliberately process-lifetime and never to be cleared — there is no working API to clear it, and clearing it reproduces the negative control instead of resetting anything. `ProcessWideState.Reset`'s Arch hook is `World.Destroy` per live world — but "nothing more" must now be said with the **recycled-id queue named as unresettable**: world ids after a `Reset` depend on the order earlier worlds were destroyed in, i.e. on the xUnit shuffle C12's own `MONODREAMS_TEST_SEED=8` clause exists to survive. So C12 must also forbid asserting on a world id (or on anything derived from one), and register `World.SharedJobScheduler` the moment wave 2 sets it for a parallel runner. |
+| **A7** | **C12** ("`ProcessWideState.Reset` returns Arch `World.Worlds`/component statics to baseline"); the H9 dimension-violation row at deep-plan `:2732` (and `:2714`), which assigns the proof to wave 0 | one reset hook returns *both* Arch registries to baseline | **Enumerated assembly-wide, not just on `World`** (§1, finding 6): **12 accumulating statics across six types** — `World` (4), `ComponentRegistry` (3), `ArrayRegistry` (1), `Component.Id`, `JobMeta.Id`, `Events.EventTypeRegistry` (2) — plus 4 `Null`/padding sentinels and one static set **per type argument** (`Component<T>`, `EventType<T>`, `JobMeta<T>`), which no walk can enumerate and nothing can reset. They answer differently. `World.Destroy` DOES reset the world half — `World.WorldSize` returns to baseline, the `World.Worlds` slot is nulled and the freed id is handed to the next `World.Create` — and **`world.Dispose()` is measured equivalent** on all three effects, plus idempotent (a second call is a silent no-op and does not re-queue the id). The **component-type registry is process-lifetime**, and its clearing surface is now enumerated rather than sampled: it ships **three** `Remove` overloads and no `Clear`/`Reset` at all. The generic `Remove<T>()` **throws `ArgumentNullException ('key')` and removes nothing**; `Remove(Type)` **returns normally and really removes the entry** — and *that* is the finding, because neither overload unwires `ArrayRegistry`, so a successfully "cleared" type keeps its array factory and its next `world.Create` dies in `ArrayRegistry.GetArray` exactly like the AOT negative control. `ComponentRegistry.Size` is a **monotonic high-water mark** — measured unchanged across a removal that genuinely worked — so no "Size unchanged" reading can evidence an untouched registry. **And one static never returns to baseline at all:** `World.Destroy` does not free an id, it **enqueues** it on the process-wide `World.RecycledWorldIds`, and `World.Create` dequeues — measured, two worlds freed high-id-first hand the **higher** id to the next `World.Create` (`2,1`, not `1,2`). `World.SharedJobScheduler` is another — and "untouched by `Destroy`" is **measured with a sentinel** written into the field rather than inferred from a `null` nothing ever set. (`World.InitialCapacity` is a compile-time **`const`**, so it is not state and owes a reset hook nothing.) The registry half is **two** stores, not one: `Arch.Core.ArrayRegistry` — the one the AOT negative control dies inside and the generator primes — is enumerated too, and its whole static surface is `Add()` + `GetArray(ComponentType, Int32)`: no size, no clear, no remove | Restate C12 as **"reset `World.Worlds` only"**, name the reset hook's SHAPE — it must walk `World.Worlds` by `Length` skipping nulls, never `for (i < World.WorldSize)`, because `WorldSize` is a live COUNT and destroying a non-highest id leaves a hole below a live world (measured: the naive walk reads one null and leaks one live world; the by-`Length` walk is **executed** in the probe, destroying inside its own iteration, and lands `WorldSize` back on baseline without throwing) — and name **both** component-type registries as deliberately process-lifetime and never to be cleared. "There is no working API to clear it" is **false as stated**: `Remove(Type)` works. What must be said instead is that clearing is a *half*-clear — `ArrayRegistry` is never unwired — so it reproduces the negative control instead of resetting anything, and C12 must forbid calling it rather than assume it is unavailable. `ProcessWideState.Reset`'s Arch hook is `World.Destroy` (or the equivalent `world.Dispose`) per live world — but "nothing more" must now be said against the **assembly-wide** set: the **recycled-id queue is unresettable**, so world ids after a `Reset` depend on the order earlier worlds were destroyed in, i.e. on the xUnit shuffle C12's own `MONODREAMS_TEST_SEED=8` clause exists to survive. C12 must therefore forbid asserting on a world id (or on anything derived from one) — a rule this probe now follows itself, asserting that a new world takes *a previously-freed* id rather than a named one. It must also register `World.SharedJobScheduler` the moment wave 2 sets it for a parallel runner, and name **`Events.EventTypeRegistry`** (`NextEventTypeId` + its `ConcurrentDictionary`) as wave 2's obligation *if* Arch's `EVENTS` build ever gets compiled in (A2) — inert today at `-1`/empty, exactly as `RecycledWorldIds` was inert before the seed that exposed it. |
 | **A9** | items **40** and **50**'s ordering clauses; the A3 row above; deep-plan `:2092-2103` | the teardown cascade has a shape — `EntityDisposed` for every entity, then `ComponentRemoved` per component, then world components — so a facade reproduces it by running those three phases | **There are no phases.** M4d put the three candidate rules on fixtures that can tell them apart, and DefaultEcs 0.18.0-beta01 answers the same way three times: subscribing a world component BEFORE the entity ones makes it fire **first** (so "world components last" was M4's own subscription order, never a rule); subscribing `EntityDisposed` **last** makes it fire **last** (so it is a channel, not a phase); and `entity.Dispose` walks the same list (so item 40's "EntityDisposed then ComponentRemoved" is that order too). One type subscribed on **both** legs takes **two** slots, each keeping its leg's order | Restate items 40 and 50 as **one order: this world's subscription order over one channel list**, with entity id ordering the carriers *inside* a channel. It is not a wording fix — a facade built on the phase reading diverges from the incumbent the moment a screen subscribes a singleton before its components (`LDtkLevelDataComponent` vs the tile components is exactly that shape), and the divergence is silent. The facade proof was rebuilt on the measured rule and S10 asserts it; S7's phase-looking log is preserved *because* S7 subscribes in the phase order. |
-| **A8** | the C12 `ProcessWideState` rows at deep-plan `:657` and `:1220` ("verified `ProcessWideState.cs:41-99` **tracks no ECS statics today** — additions land same PR"); the C5 using-sweep base at `:2722` (449 lines / 320 files on main @`7b2cbe2a`) | `ProcessWideState` holds engine statics only; the **Arch** `World.Worlds` hook will be the first ECS entry it ever gains | **This PR already gave it one, and it is a *DefaultEcs* entry.** Commit `26769cf0` (the `MONODREAMS_TEST_SEED=8` flake fix that unblocked wave 0's own verification) adds a reflection hook into `DefaultEcs.Internal.EntityQueryFilterFactory._filters` — `ProcessWideState.cs:63-71` (the `FieldInfo` + reachability flag), `:136` (the `Reset` call) and `:170-174` (`ResetEcsQueryFilterCache`) — plus a `using DefaultEcs;` in a git-tracked `.cs` outside `scratchpad/` | Rows `:657`/`:1220` are stale as written: one ECS static **is** tracked. State that it is **deleted, not ported**, at wave-1 close (it memoises a DefaultEcs predicate cache that ceases to exist with DefaultEcs), and grow the C5 sweep base at `:2722` by the 1 file / 1 line this PR added. Wave 1 must also say what carries the issue-#114 flake protection afterwards: the collision is upstream-specific (a string key built from `ComponentEnum.ToString()`), and the wave-0 enumeration of Arch's `World` statics found **five, none of them a query or predicate cache** — but that enumeration covered `World` only, so wave 1 owes either "no replacement needed", backed by the same enumeration run over the facade's and Arch's query types, or a named replacement hook. Not assumed either way. |
+| **A8** | the C12 `ProcessWideState` rows at deep-plan `:657` and `:1220` ("verified `ProcessWideState.cs:41-99` **tracks no ECS statics today** — additions land same PR"); the C5 using-sweep base at `:2722` (449 lines / 320 files on main @`7b2cbe2a`) | `ProcessWideState` holds engine statics only; the **Arch** `World.Worlds` hook will be the first ECS entry it ever gains | **This PR already gave it one, and it is a *DefaultEcs* entry.** Commit `26769cf0` (the `MONODREAMS_TEST_SEED=8` flake fix that unblocked wave 0's own verification) adds a reflection hook into `DefaultEcs.Internal.EntityQueryFilterFactory._filters` — `ProcessWideState.cs:63-71` (the `FieldInfo` + reachability flag), `:136` (the `Reset` call) and `:170-174` (`ResetEcsQueryFilterCache`) — plus a `using DefaultEcs;` in a git-tracked `.cs` outside `scratchpad/` | Rows `:657`/`:1220` are stale as written: one ECS static **is** tracked. State that it is **deleted, not ported**, at wave-1 close (it memoises a DefaultEcs predicate cache that ceases to exist with DefaultEcs), and grow the C5 sweep base at `:2722` by the 1 file / 1 line this PR added. Wave 1 must also say what carries the issue-#114 flake protection afterwards: the collision is upstream-specific (a string key built from `ComponentEnum.ToString()`), and the wave-0 enumeration — now run **assembly-wide**, not only over `World` — found **12 accumulating statics over six Arch types, none of them a query or predicate cache** (§1, finding 6). So the Arch half of that question is answered: no replacement hook is owed *for Arch*. What wave 1 still owes is the same enumeration over the **facade's own** query types, since the facade — not Arch — is where a predicate/query cache would live. Not assumed either way. |
 
 ### Deliberate strengthenings beyond the contract (kept)
 
@@ -60,7 +60,10 @@ None of these is scope-creep; each one is why a finding above exists at all.
 | **S9** — a handler that calls `world.Dispose` *during* `world.Dispose`, and **M7**, the same shape on DefaultEcs | `facade-events-proof/Scenarios.cs`, `defaultecs-measurements/Program.cs` | S8 re-enters *entity* disposal; six engine sites call `world.Dispose` (screen teardown, `Game.UnloadContent`, the editor's world swap), so re-entering *world* disposal is a live shape. Without a guard set before the cascade the facade replayed every event (measured 3× on two carriers before a probe cap stopped it). M7 measured DefaultEcs guarding it, so the fix is parity, not invention. |
 | **M4b / M4c** — what *determines* the two teardown orders | `defaultecs-measurements/Program.cs` | M4 measured *that* the cascade is pool-grouped and world-components-last; it could not say what orders the pools, because subscription order, `Set` order and process-wide first touch coincide in its fixture. The engine builds **one world per screen**, so per-world and process-wide ids agree on the first screen and diverge on the second. Measured: **per-world subscription order**, on both legs — which is what the facade now mints, for entity *and* world components. |
 | **M5b / M5c** and **S8 leg C** — entities created, and components `Set`, *during* the cascade | both harnesses | Item 41 is Dispose + Create + Publish; S6 covers Create during play and S8 leg A covers Dispose at teardown, leaving Create at teardown unmeasured. M5b: teardown-time creation is event-silent on DefaultEcs (Added fires, nothing else). M5c: a component `Set` mid-cascade on a not-yet-reported carrier **is** reported — which is why the facade re-reads membership at dispatch time instead of snapshotting it. |
-| The **enumerated** `World` static probe (five fields) + the recycled-id order check | `shared/ArchExercise.cs` | A7 says "`World.Destroy` per live world, **nothing more**". That is only checkable against an enumerated set: the enumeration found `RecycledWorldIds`, which no API drains, and `SharedJobScheduler`, which `Destroy` never touches. |
+| The **assembly-wide** static enumeration + the recycled-id order check | `shared/ArchExercise.cs` | A7 says "`World.Destroy` per live world, **nothing more**". That is only checkable against an enumerated set — and enumerating `typeof(World)` cannot carry a claim about Arch's *process-wide* state. The `World` walk found `RecycledWorldIds` (which no API drains) and `SharedJobScheduler` (which `Destroy` never touches); the assembly-wide walk found three more accumulators outside `World` — `Component.Id`, `JobMeta.Id` and `Events.EventTypeRegistry` — plus the per-type-argument statics no walk can reach. |
+| The `world.Dispose()` leg beside every `World.Destroy` one | `shared/ArchExercise.cs` | Item 50's rewrite makes `world.Dispose` drive the facade's teardown, and A7's reset hook is that same disposal from outside — but every leg here tore worlds down with the *static* verb. Equivalence (and idempotence) is a measurement, not a reading of the docs. |
+| Executing the by-`Length` sweep A7 prescribes, not counting it | `shared/ArchExercise.cs` | `World.Destroy` mutates the array the sweep iterates. "A by-`Length` walk would see every live world" does not say that destroying *inside* it is safe, and the prescription is what wave 1 copies into engine code. |
+| Enumerating `ComponentRegistry`'s surface and invoking **both** `Remove` overloads | `shared/ArchExercise.cs` | The probe used to invoke one of three overloads and generalise to "Arch ships no working registry reset". `Remove(Type)` works — the real finding is what a *successful* clear leaves behind (`ArrayRegistry` still wired, `Size` unmoved), and that is a different instruction to wave 1. |
 | **M4d** — the fixture that separates "three teardown phases" from "one channel list" | `defaultecs-measurements/Program.cs` | M4/M4b/M4c all subscribe in the phase order, so their logs agree with both rules at once. M4d subscribes a world component first, `EntityDisposed` last, and one type on BOTH legs — and produced delta **A9**, the rule the facade's whole teardown was rebuilt on. |
 | **M8 / M9** and **S9 leg B / S11** — the crossed re-entrancy and a THROWING teardown handler | both harnesses | S9 leg A settled world-inside-world; the crossed direction (`world.Dispose` from inside a normal `entity.Dispose`) leaves the outer disposal holding a destroyed Arch world, and a throwing handler drops the rest of the cascade. Both are one handler away in engine code, and both were unmeasured. M8/M9 give the incumbent's answers: the same event sequences, but a world DefaultEcs leaves alive and unrecoverable. |
 | The **sparse-`World.Worlds`** probe (destroying a NON-highest world id) | `shared/ArchExercise.cs` | Every other probe frees the highest live id, where `World.WorldSize` still bounds the array — so the hook A7 prescribes looks fine. One out-of-order destroy is what shows it reading a null and leaking a live world. |
@@ -105,9 +108,9 @@ dotnet publish scratchpad/arch-spike/aot-console/AotConsole.csproj -c Release -r
 
 | Target | Runtime facts | Outcome |
 |---|---|---|
-| NativeAOT, `osx-arm64` | `IsDynamicCodeSupported=False`, 2.1 MB Mach-O arm64 binary; `ArrayRegistry`'s member metadata stripped (0 members reflected) | `43 checks, 0 failed`, exit 0 |
-| KNI/BlazorGL WASM, Chrome 151 headless | `OSArchitecture=Wasm`, `IsDynamicCodeSupported=True` (interpreter), `IsDynamicCodeCompiled=False`, KNI `Xna.Framework 4.2.9001` loaded in the same bundle | `43 checks, 0 failed`, `ARCH-WASM PASS` |
-| WASM negative control (`UseArchAotGenerator=false`) | `ComponentRegistry.Size before any World = 0` — lazy registration, `Has<Doomed>()` reads **false** before first use where both generator legs read true, and the post-clear `world.Create<Doomed>` dies with `ArgumentNullException ('elementType')` where the generator legs still succeed | `43 checks, 0 failed`, `ARCH-WASM PASS` |
+| NativeAOT, `osx-arm64` | `IsDynamicCodeSupported=False`, 2.1 MB Mach-O arm64 binary; `ArrayRegistry`'s member metadata stripped (0 members reflected), and `Assembly.GetTypes()` sees **30** Arch types where JIT/WASM see 359 — so the assembly-wide static walk finds only `World`'s 4 there | `57 checks, 0 failed`, exit 0 |
+| KNI/BlazorGL WASM, Chrome 151 headless | `OSArchitecture=Wasm`, `IsDynamicCodeSupported=True` (interpreter), `IsDynamicCodeCompiled=False`, KNI `Xna.Framework 4.2.9001` loaded in the same bundle; full reflection — **359** Arch types, **12** accumulating statics, **0** unaccounted | `57 checks, 0 failed`, `ARCH-WASM PASS` |
+| WASM negative control (`UseArchAotGenerator=false`) | `ComponentRegistry.Size before any World = 0` — lazy registration, `Has<Doomed>()` reads **false** before first use where both generator legs read true, and *both* post-clear creates (`Doomed` after the throwing `Remove<T>()`, `Doomed2` after the working `Remove(Type)`) die with `ArgumentNullException ('elementType')` where the generator legs still succeed | `57 checks, 0 failed`, `ARCH-WASM PASS` |
 | AOT negative control (`UseArchAotGenerator=false`) | same publish, no priming | `0 checks, 1 failed` — dies inside the FIRST `world.Create` before any check runs |
 
 The exercise prints its own `== N checks, M failed ==` line, so these numbers are recountable from a
@@ -140,7 +143,7 @@ Published WASM bundle: `_framework/` is 16 MB (uncompressed, `.br`/`.gz` sibling
    that declares components**: `MonoDreams.dll`, every game assembly, and every CLI-scaffolded
    project. That is a wave-2/wave-4 packaging obligation the plan does not currently name.
 3. **Under WASM the registration is NOT required.** The same negative control, published through
-   the Blazor Release trimmer, passes all 43 checks in Chrome: the WASM runtime keeps dynamic code
+   the Blazor Release trimmer, passes all 57 checks in Chrome: the WASM runtime keeps dynamic code
    support (interpreter) and the trimmer leaves the component array types reachable. So the AOT
    generator is an *AOT-target* obligation (console/iOS AOT), not a web one — D6's "yes" is correct
    but its scope is narrower than "everywhere".
@@ -163,14 +166,46 @@ Published WASM bundle: `_framework/` is 16 MB (uncompressed, `.br`/`.gz` sibling
    World.worldSizeUnsafe                    1
    World.<RecycledWorldIds>k__BackingField  Collections.Pooled.PooledQueue`1[System.Int32]
    World.<SharedJobScheduler>k__BackingField null
-   World.InitialCapacity                    128
+   World.InitialCapacity  [const]           128
    ```
    (identical on both legs; the reflection survives both the Blazor trimmer and NativeAOT, and is
-   reported rather than checked precisely because that is not guaranteed to keep being true.)
+   reported rather than checked precisely because that is not guaranteed to keep being true. The
+   fifth is a compile-time `const`, tagged as such: nothing can write it, so it is not state.)
+   - **...but `World` is one TYPE, and the claim is about the process.** Enumerating `typeof(World)`
+     and then concluding "nothing more" is the same shortcut this section exists to stop taking —
+     `RecycledWorldIds` was invisible until the set was enumerated, and that set was still the wrong
+     set. So the walk is widened to every type in Arch's assembly declaring a non-const static.
+     Measured on the JIT/WASM legs (359 types): **12 accumulating statics over six types** —
+     `World` (4), `ComponentRegistry` (`_typeToComponentType`, `_types`, `Size`), `ArrayRegistry`
+     (`_createFactories`), `Component.Id`, `JobMeta.Id`, and `Events.EventTypeRegistry`
+     (`NextEventTypeId` = `-1`, `EventIds` empty) — plus **4** `Null`/padding sentinels
+     (`Entity.Null`, `Signature.Null`, `QueryDescription.Null`, `BitSet._padding`), 2 compiler-
+     generated lambda caches, and one static set **per type argument** on `Component<T>`,
+     `EventType<T>`, `JobMeta<T>` and `ArrayRegistry.ArrayFactory<T>` — which no reflection walk can
+     enumerate without the closed types and which nothing can reset. **Nothing is left
+     unaccounted for** (the checked number is 0). `Component.Id` and `JobMeta.Id` are monotonic id
+     counters, and `EventTypeRegistry` is inert only because Arch's `EVENTS` build is off (finding 1
+     in §3) — it is wave 2's obligation the moment that changes, in exactly the way
+     `RecycledWorldIds` was inert until a shuffle seed reached it. Under **NativeAOT** the same walk
+     sees 30 types and finds only `World`'s 4, so the wide claim is carried by the JIT/WASM legs and
+     the check degrades to vacuous rather than false on the trimmed one — the artifact prints the
+     type count so a reader can see which.
    - **`World.Worlds` / `World.WorldSize` DO reset.** `World.Destroy` nulls the world's slot,
-     `World.WorldSize` returns to its pre-`Create` value, and the next `World.Create` **reuses the
+     `World.WorldSize` returns to its pre-`Create` value, and the next `World.Create` **reuses a
      freed id**. A world built after a `Destroy` still constructs a managed archetype, so nothing
      is left half-torn-down. `ProcessWideState.Reset`'s Arch hook is exactly this, per live world.
+     (The reuse is asserted as a *property* — the new world's id came out of the freed queue —
+     never as an equality against a named id, because the queue below is what makes such an
+     equality depend on what ran before. A7's own conclusion forbids the assert this probe would
+     otherwise have made about Arch.)
+   - **`world.Dispose()` is the same operation.** Every leg here tears worlds down with the static
+     `World.Destroy`, but the contract speaks the *instance* verb — item 50's rewrite makes
+     `world.Dispose` drive the facade's teardown cascade, and A7's reset hook is that same disposal
+     seen from outside. Arch's `World` is `IDisposable`, so the two are two entry points and the
+     equivalence is measured, not read off the docs: `world.Dispose()` returns `World.WorldSize` to
+     baseline, nulls the `World.Worlds` slot and leaves `ComponentRegistry` untouched, exactly as
+     `World.Destroy` does. It is also **idempotent** — a second `Dispose` is a silent no-op and does
+     **not** push the id onto the recycled queue a second time (measured: `Count` 1 → 1).
    - **...but the hook has to WALK that array the right way.** `World.WorldSize` is a **count of
      live worlds**, not a high-water mark, and `World.Worlds` goes **sparse** the moment a
      non-highest id is destroyed — which is the engine's own shape, one world per screen created
@@ -178,7 +213,10 @@ Published WASM bundle: `_framework/` is 16 MB (uncompressed, `.br`/`.gz` sibling
      `for (i < World.WorldSize) World.Destroy(World.Worlds[i])` hook reads **one null slot** (an
      NRE) and **leaks one live world** past its bound. Walking `World.Worlds` by `Length` and
      skipping nulls sees exactly `World.WorldSize` live worlds, and that is the hook C12 should
-     name.
+     name. That walk is then **executed**, not just counted: `World.Destroy` mutates the very array
+     being iterated (it nulls a slot and decrements `worldSizeUnsafe`), so "the walk would see every
+     live world" says nothing about destroying *inside* it. Measured over two live worlds: the sweep
+     completes without throwing and drives `World.WorldSize` back to the pre-sweep baseline.
    - **`World.RecycledWorldIds` never returns to baseline.** `World.Destroy` does not *free* an id,
      it **enqueues** it; `World.Create` dequeues. Measured: two worlds freed higher-id-first hand
      the ids back as `2,1` — freed order, not lowest-free-first — so after any reset the id a world
@@ -191,11 +229,18 @@ Published WASM bundle: `_framework/` is 16 MB (uncompressed, `.br`/`.gz` sibling
      instance, so no worker threads start), creates and destroys a world over it, and finds the
      sentinel still there, then restores `null`. A target that cannot install one says so and the
      check degrades to "never observed being cleared" — both legs installed it.
-     `World.InitialCapacity` is a fifth (a mutable configuration constant, 128).
-   - **`ComponentRegistry` does NOT, and must never be made to.** It is process-lifetime: `Size`
-     and `Has<T>()` are unchanged across `World.Destroy`, which is *why* the world created
-     afterwards works. Under the AOT generator it is primed once by a `[ModuleInitializer]`, which
-     by construction cannot re-run.
+     `World.InitialCapacity` is the fifth field on `World` but a compile-time `const` (128), so it
+     is not state and no reset hook owes it anything.
+   - **`ComponentRegistry` does NOT, and must never be made to.** It is process-lifetime:
+     `Has<T>()` is unchanged across `World.Destroy` (and across `world.Dispose`), which is *why* the
+     world created afterwards works. Under the AOT generator it is primed once by a
+     `[ModuleInitializer]`, which by construction cannot re-run.
+     **`Size` is the weak half of that evidence and is kept only as a falsifier.** It is a
+     **monotonic high-water mark**, not a count of live entries — measured below: a removal that
+     genuinely took a type out (`Has<T>()` True → False) left `Size` exactly where it was. So "Size
+     unchanged" reads identically whether the registry is untouched or half-emptied; a *drop* would
+     still falsify the claim, but no unchanged reading can confirm it. The process-lifetime claim
+     rests on `Has<T>()` plus the behavioural `ArrayRegistry` probe.
    - **And there are TWO component-type registries, not one.** `Arch.Core.ArrayRegistry` — the
      store the negative control dies inside (`ArrayRegistry.GetArray`) and the one the AOT
      generator's shim primes — is enumerated the same way. Its backing field is a
@@ -208,18 +253,34 @@ Published WASM bundle: `_framework/` is 16 MB (uncompressed, `.br`/`.gz` sibling
      (JIT and WASM both see 2 methods). `World`'s own fields survive there because `typeof(World)`
      is statically referenced. The surface claim is therefore carried by the JIT/WASM legs, and
      the artifact prints the member count so a reader can see which.
-   - **Clearing it is not a reset, it is the negative control.** `ComponentRegistry.Remove<T>()` —
-     Arch 2.1.0's only clearing entry point — **throws `ArgumentNullException ('key')`** from
-     inside its own dictionary removal, *after* having already invalidated the type's entry. The
-     type then reads `Has<T>() == true` with an unchanged `Size`, and on a lazily-registered target
-     the very next `world.Create` of it dies with `ArgumentNullException ('elementType')` inside
-     `ArrayRegistry.GetArray` — the same stack as the AOT negative control in finding 2. (With the
-     generator on, the parallel `ArrayRegistry` priming survives and the create still succeeds,
-     which is why the checked claim is "Remove throws", the part both targets agree on.)
+   - **Clearing it is not a reset, it is the negative control — and NOT because the API is
+     missing.** `ComponentRegistry`'s clearing surface is enumerated the same way `ArrayRegistry`'s
+     is, because "Arch ships no working registry reset" is a claim about a *set* of entry points and
+     this probe previously invoked one of them and generalised. Measured surface: no `Clear`, no
+     `Reset`, but **three** `Remove` overloads (`Remove<T>()`, `Remove(Type)`,
+     `Remove(Type, out ComponentType)`) and three `Replace` ones. The two `Remove` shapes the probe
+     now exercises answer **differently**:
+     - `ComponentRegistry.Remove<T>()` (the generic one) **throws `ArgumentNullException ('key')`**
+       from inside its own dictionary removal and **removes nothing** — the type still reads
+       `Has<T>() == true` afterwards.
+     - `ComponentRegistry.Remove(Type)` **returns normally and really removes the entry**
+       (`Has<T>()` True → False). "There is no working API to clear it" is therefore false as
+       previously written.
+     What makes a *successful* clear the negative control is what it leaves behind: **neither
+     overload unwires `ArrayRegistry`**, which still hands out `Doomed2[]` for the type just
+     removed, and `Size` does not move. On a lazily-registered target the very next `world.Create`
+     of the cleared type dies with `ArgumentNullException ('elementType')` inside
+     `ArrayRegistry.GetArray` — the same stack as the AOT negative control in finding 2, measured on
+     the WASM negative control for **both** the failed generic clear and the successful
+     `Remove(Type)`. (With the generator on, the parallel `ArrayRegistry` priming survives and both
+     creates still succeed, which is why those two lines are reported per leg and the checked claims
+     are the ones every leg agrees on.)
 
    So C12 cannot promise both halves, and "nothing more" is not free either. Restated: reset
-   `World.Worlds`; leave the component-type registry alone, forever; and name the recycled-id queue
-   as unresettable, so no test and no engine invariant may depend on a world id.
+   `World.Worlds` (by `Length`, skipping nulls, with either teardown verb); leave the component-type
+   registries alone forever — not because they cannot be cleared, but because clearing one
+   half-registers the type; and name the recycled-id queue as unresettable, so no test and no engine
+   invariant may depend on a world id.
 7. **The `.Web` project-name suffix is load-bearing.** `Directory.Build.props` relocates `obj`/`bin`
    for every project built with `-p:MonoDreamsPlatform=web` *except* those whose name ends in
    `.Web`, because Blazor's static-web-assets/`_framework` layout breaks when it moves. The head is
@@ -576,11 +637,14 @@ cd scratchpad/arch-spike/facade-events-proof && dotnet run -c Release   # exit c
 
 ```
 shared/ArchSpikeComponents.cs   component shapes (struct, second struct, zero-sized tag, managed class,
-                                plus `Doomed` — sacrificial, used only by the registry-reset probe)
+                                plus `Doomed`/`Doomed2` — sacrificial, one per Remove overload the
+                                registry-reset probe exercises)
 shared/ArchCoreUtilsShim.cs     the Arch 1.x -> 2.x namespace shim the AOT generator needs
-shared/ArchExercise.cs          the 43 checks both target proofs run, verbatim (incl. the H9/C12 probe,
-                                the enumeration of Arch's World statics AND of ArrayRegistry, the
-                                sparse-World.Worlds walk and the SharedJobScheduler sentinel)
+shared/ArchExercise.cs          the 57 checks both target proofs run, verbatim (incl. the H9/C12 probe,
+                                the ASSEMBLY-WIDE static enumeration plus the ComponentRegistry and
+                                ArrayRegistry surfaces, the sparse-World.Worlds walk and the executed
+                                by-Length sweep, the world.Dispose parity leg and the
+                                SharedJobScheduler sentinel)
 aot-console/                    NativeAOT head  (exit code == proof)
 wasm-head/                      KNI/BlazorGL Blazor WASM head (document.title == proof)
 wasm-head/run-in-chrome.mjs     puppeteer-core driver against the SYSTEM Chrome

@@ -247,17 +247,61 @@ internal static class ArchExercise
             Check("World.WorldSize back to baseline after Destroy", World.WorldSize, worldSizeBaseline);
             Check("World.Worlds slot nulled by Destroy", World.Worlds[extraId] == null, true);
 
+            // "the next world gets `extraId` back" would be an assert on a CONCRETE world id, and the
+            // very next probe (the recycled-id queue) is what proves such an assert is only true while
+            // that queue is empty — an unstated precondition on a static this section also proves is
+            // unresettable. A7 concludes C12 must forbid asserting on a world id; a check here that
+            // does exactly that would fail for a reason that is not about Arch the moment anything ran
+            // a `World.Destroy` first. So the PROPERTY is asserted instead: the id came out of the
+            // freed set, whichever member of it that is.
+            var freedBeforeReborn = RecycledWorldIds();
             var reborn = World.Create();
-            Check("World.Destroy frees the world id for reuse", reborn.Id, extraId);
+            var reuseOutcome = freedBeforeReborn == null
+                ? "unreadable: RecycledWorldIds not reflectable on this target"
+                : freedBeforeReborn.Contains(reborn.Id)
+                    ? "REUSED a previously-freed id"
+                    : "took a FRESH id";
+            Report("freed ids queued before this World.Create",
+                freedBeforeReborn == null ? "<unreadable>" : "[" + string.Join(", ", freedBeforeReborn) + "]");
+            Report("World.Create's id (" + reborn.Id + ") vs that queue", reuseOutcome);
+            Check("World.Create never mints a FRESH id while a freed one is queued",
+                reuseOutcome.StartsWith("took a FRESH", StringComparison.Ordinal), false);
             var rebornEntity = reborn.Create(new Position { X = 2f, Y = 2f }, new Payload { Name = "reborn", Depth = 2f });
             Check("a world created AFTER Destroy still builds a managed archetype",
                 reborn.Get<Payload>(rebornEntity).Name, "reborn");
             World.Destroy(reborn);
             Check("World.WorldSize back to baseline again", World.WorldSize, worldSizeBaseline);
 
+            // Every leg here tears a world down through the STATIC `World.Destroy`, but that is not the
+            // verb the contract speaks: item 50's rewrite makes `world.Dispose()` drive the facade's
+            // teardown cascade, and A7's reset hook is the same object's disposal seen from outside.
+            // Arch's `World` is `IDisposable`, so the two verbs are two entry points and their
+            // equivalence is a measurement, not a reading of the docs — a reset hook built on the wrong
+            // one leaks. Same three registry effects, asserted against the same baselines.
+            var disposable = World.Create();
+            var disposableId = disposable.Id;
+            disposable.Create(new Position { X = 3f, Y = 3f }, new Payload { Name = "disposed", Depth = 3f });
+            var registryBeforeDispose = ComponentRegistry.Size;
+            disposable.Dispose();
+            Check("world.Dispose() returns World.WorldSize to baseline, exactly like World.Destroy",
+                World.WorldSize, worldSizeBaseline);
+            Check("world.Dispose() nulls the World.Worlds slot, exactly like World.Destroy",
+                World.Worlds[disposableId] == null, true);
+            Check("world.Dispose() leaves ComponentRegistry.Size untouched too",
+                ComponentRegistry.Size, registryBeforeDispose);
+            Check("...and Payload's registration survives world.Dispose()", ComponentRegistry.Has<Payload>(), true);
+
+            // Idempotence matters for a reset hook that may run over a world a screen already disposed:
+            // a second call must not double-free the id back onto the queue the probe below reads.
+            var queuedBeforeDoubleDispose = RecycledWorldIdCount();
+            disposable.Dispose();
+            Check("a second world.Dispose() is a silent no-op", World.WorldSize, worldSizeBaseline);
+            Report("recycled-id queue Count across the double Dispose",
+                queuedBeforeDoubleDispose + " -> " + RecycledWorldIdCount() + " (equal == no double-free)");
+
             // ...but "back to baseline" is a claim about `World.Worlds`/`World.WorldSize` ONLY, and
             // A7's "World.Destroy per live world, nothing more" is only checkable if the set of
-            // process-wide statics is ENUMERATED rather than guessed. Arch holds a THIRD one:
+            // process-wide statics is ENUMERATED rather than guessed. Arch holds another one:
             // `World.Destroy` does not free an id, it ENQUEUES it, and `World.Create` dequeues. So
             // the id the next world gets is decided by the order earlier worlds were destroyed in —
             // state that outlives every world, that no API drains, and that a test-order shuffle
@@ -321,8 +365,34 @@ internal static class ArchExercise
             }
 
             Check("walking World.Worlds by LENGTH, skipping nulls, sees every live world", liveByLength, World.WorldSize);
-            World.Destroy(upperWorld);
-            Check("World.WorldSize back to baseline after the sparse pair", World.WorldSize, worldSizeBaseline);
+
+            // ...and that walk is RUN, not counted. A7 hands wave 1 a hook shape, so the hook has to be
+            // executed at least once here: `World.Destroy` mutates the very array being iterated (it
+            // nulls a slot and decrements `worldSizeUnsafe`), so "a by-Length walk would see every live
+            // world" does not by itself say that destroying INSIDE that walk is safe, nor that the
+            // sweep drives `World.WorldSize` down. Both are the prescription wave 1 copies into engine
+            // code. A scratch third world joins `upperWorld` so the sweep takes more than one; the
+            // exercise's own world is skipped, because the rest of the section still needs it.
+            var sweepScratch = World.Create();
+            sweepScratch.Create(new Position { X = 4f, Y = 4f }, new Payload { Name = "swept", Depth = 4f });
+            var sweepOutcome = "completed";
+            try
+            {
+                for (var i = 0; i < World.Worlds.Length; i++)
+                {
+                    var live = World.Worlds[i];
+                    if (live == null || ReferenceEquals(live, world)) continue;
+                    World.Destroy(live);
+                }
+            }
+            catch (Exception ex)
+            {
+                sweepOutcome = ex.GetType().Name + ": " + ex.Message;
+            }
+
+            Report("the by-Length sweep A7 prescribes, EXECUTED over 2 live worlds", sweepOutcome);
+            Check("destroying INSIDE the by-Length walk does not throw", sweepOutcome, "completed");
+            Check("...and the sweep drives World.WorldSize to the pre-sweep baseline", World.WorldSize, worldSizeBaseline);
 
             // And the enumeration itself, so "nothing more" stops being an assumption. Reflection
             // over another assembly's statics is exactly what a trimmed/AOT image may not answer, so
@@ -346,14 +416,31 @@ internal static class ArchExercise
 
                     // Collection-valued statics report their COUNT, so "never returns to baseline"
                     // is a number (the recycled-id queue holds the two ids freed above) instead of
-                    // an inference from a type name.
-                    Report("   World." + field.Name, Describe(value));
+                    // an inference from a type name. `const` fields are TAGGED, because one of these
+                    // five (`InitialCapacity`) is a compile-time literal and therefore not state at
+                    // all: nothing can write it, so no reset hook owes it anything.
+                    Report("   World." + field.Name + (field.IsLiteral ? "  [const]" : string.Empty), Describe(value));
                 }
             }
             catch (Exception ex)
             {
                 Report("static-field enumeration of World", "unavailable on this target: " + ex.GetType().Name);
             }
+
+            // ...but `World` is one TYPE, and "nothing more" is a claim about Arch's process-wide
+            // state, not about that type's fields. Enumerating `typeof(World)` and then concluding
+            // "nothing more" is the same shortcut this section was written to stop taking — the
+            // recycled-id queue was invisible until the set was enumerated, and the set was the wrong
+            // set. So the walk is widened to EVERY type in Arch's assembly that declares a non-const
+            // static, and the ones outside `World` are named rather than discovered by wave 2.
+            // Reported, not checked, for the same reason the ArrayRegistry member count is: a trimmed
+            // /AOT image may enumerate fewer types than a JIT one, so the SIZE of the set is a
+            // per-target observation. What IS checked degrades to vacuous rather than to a false
+            // failure on such a leg: whatever the walk did see, none of it is left unaccounted for.
+            var archStatics = ProbeArchStatics(Report);
+            Report("assembly-wide static enumeration reachable on this target", archStatics.Found);
+            Check("every mutable Arch static this walk saw falls in a set A7 NAMES (none left over)",
+                archStatics.Unnamed, 0);
 
             // `World.SharedJobScheduler` reads `null` above — but that is equally consistent with
             // "nothing ever set it" and with "World.Destroy clears it", and A7 tells wave 2 to rely
@@ -412,8 +499,23 @@ internal static class ArchExercise
             // The other half, and the one C12 gets wrong: the component-type registry is NOT
             // world-scoped. It survives every Destroy, which is what makes the world above usable
             // at all — and it is why "reset the component statics to baseline" cannot be a hook.
-            Check("ComponentRegistry.Size is unchanged by World.Destroy", ComponentRegistry.Size, registryBaseline);
-            Check("ComponentRegistry.Has<Payload>() survives World.Destroy", ComponentRegistry.Has<Payload>(), true);
+            //
+            // `Size` is the WEAKER half of that claim, and the probe below is what shows why: it is a
+            // monotonic high-water mark, unchanged even by a removal that genuinely worked. So
+            // "unchanged across Destroy" reads the same whether the registry is untouched or emptied,
+            // and the process-lifetime claim rests on `Has<T>()` plus the behavioural ArrayRegistry
+            // probe. `Size` is kept because a DROP would still falsify it — it just cannot confirm it.
+            Check("ComponentRegistry.Size is unchanged by World.Destroy (weak: Size never shrinks)",
+                ComponentRegistry.Size, registryBaseline);
+            Check("ComponentRegistry.Has<Payload>() survives World.Destroy — the load-bearing half",
+                ComponentRegistry.Has<Payload>(), true);
+
+            // And its surface is enumerated exactly like ArrayRegistry's below, for the same reason:
+            // "Arch ships no working registry reset" is a claim about a SET of entry points, and the
+            // spike previously invoked one of three `Remove` overloads and generalised from it.
+            var componentRegistrySurface = ProbeComponentRegistry(Report);
+            Check("ComponentRegistry ships no Clear/Reset member at all (only Remove/Replace)",
+                componentRegistrySurface.ClearOrReset, 0);
 
             // C12 says component-type registrIES, plural, and Arch really does have two.
             // `ComponentRegistry` is the one the checks above cover; `ArrayRegistry` is the one the
@@ -431,9 +533,15 @@ internal static class ArchExercise
             Report("ArrayRegistry.GetArray(Payload, 1) after every World.Destroy so far", ArrayRegistryHandsOut());
             Check("ArrayRegistry keeps handing out Payload[] across World.Destroy", ArrayRegistryHandsOut(), "Payload[]");
 
-            // ...and there is no way to clear it anyway: Arch 2.1.0's only entry point for that is
-            // BROKEN. `Doomed` exists solely for this probe — it is left in a half-cleared state
-            // afterwards, so nothing else may ever touch it.
+            // ...and clearing it does not reset anything anyway — but the reason is NOT "the only
+            // entry point throws", which is what this probe used to conclude from invoking one of the
+            // three `Remove` overloads the enumeration above lists. Both are exercised below, and they
+            // answer differently: the GENERIC overload throws and removes nothing, while `Remove(Type)`
+            // returns normally and really does remove the entry. What survives that working removal is
+            // the actual finding — `ArrayRegistry` is never unwired by either, so a "cleared" type
+            // still has an array factory and its next `world.Create` reproduces the negative control.
+            // `Doomed` and `Doomed2` exist solely for this pair of probes; both are left in a broken
+            // registry state afterwards, so nothing else may ever touch them.
             var doomedWorld = World.Create();
 
             // Reported, not checked, and the two legs deliberately DIFFER here: `Doomed` is
@@ -459,12 +567,13 @@ internal static class ArchExercise
                 clearOutcome = ex.GetType().Name + ": " + ex.Message;
             }
 
-            Check("ComponentRegistry.Remove<T>() THROWS — Arch ships no working registry reset", clearThrew, true);
+            Check("ComponentRegistry.Remove<T>() (the GENERIC overload) THROWS", clearThrew, true);
             Report("ComponentRegistry.Remove<Doomed>() outcome", clearOutcome);
-            Report("ComponentRegistry.Has<Doomed>() after the clear", ComponentRegistry.Has<Doomed>());
-            Report("ComponentRegistry.Size after the clear", ComponentRegistry.Size);
+            Check("...and removes NOTHING — the entry is still there afterwards",
+                ComponentRegistry.Has<Doomed>(), true);
+            Report("ComponentRegistry.Size after the generic clear", ComponentRegistry.Size);
 
-            // Whether the type still WORKS after the half-clear is target-dependent, so it is
+            // Whether `Doomed` still WORKS after that failed clear is target-dependent, so it is
             // observed rather than checked: under the AOT generator the parallel ArrayRegistry was
             // primed at module init and survives, while a JIT run (lazy registration) dies inside
             // ArrayRegistry.GetArray with `ArgumentNullException (elementType)` — the negative
@@ -480,16 +589,67 @@ internal static class ArchExercise
                 createOutcome = ex.GetType().Name + ": " + ex.Message;
             }
 
-            Report("first world.Create<Doomed> after the clear", createOutcome);
+            Report("first world.Create<Doomed> after the generic clear", createOutcome);
             World.Destroy(afterClear);
 
             // ...and the SECOND registry is what decides that outcome: `ComponentRegistry.Remove<T>`
             // reaches nothing here, so a target whose ArrayRegistry was primed by the generator
             // still finds `Doomed[]` and a lazily-registered one dies in `ArrayRegistry.GetArray`.
-            // Neither registry is emptied by anything — that is the process-lifetime claim, and it
-            // is a claim about BOTH of them.
-            Report("ArrayRegistry.GetArray(Doomed, 1) after the ComponentRegistry clear", ArrayRegistryHandsOut<Doomed>());
-            Check("...and Payload's factory is untouched by that clear", ArrayRegistryHandsOut(), "Payload[]");
+            Report("ArrayRegistry.GetArray(Doomed, 1) after the generic clear", ArrayRegistryHandsOut<Doomed>());
+
+            // The other overload, on a type whose entry is still intact. `Remove(Type)` is what makes
+            // "Arch ships no working registry reset" false as previously written: it works.
+            var doomed2World = World.Create();
+            doomed2World.Create(new Doomed2 { N = 1 });
+            Check("ComponentRegistry.Has<Doomed2>() once the type HAS been used", ComponentRegistry.Has<Doomed2>(), true);
+            World.Destroy(doomed2World);
+
+            var sizeBeforeRemoveType = ComponentRegistry.Size;
+            var removeTypeThrew = false;
+            var removeTypeOutcome = "returned normally";
+            try
+            {
+                ComponentRegistry.Remove(typeof(Doomed2));
+            }
+            catch (Exception ex)
+            {
+                removeTypeThrew = true;
+                removeTypeOutcome = ex.GetType().Name + ": " + ex.Message;
+            }
+
+            Report("ComponentRegistry.Remove(Type) outcome", removeTypeOutcome);
+            Check("ComponentRegistry.Remove(Type) RETURNS NORMALLY where the generic overload throws",
+                removeTypeThrew, false);
+            Check("...and it really removes the entry (Has True -> False)", ComponentRegistry.Has<Doomed2>(), false);
+
+            // The measurement that makes the `Size` check above weak evidence: a removal that genuinely
+            // took the entry out leaves `Size` exactly where it was. It is a high-water mark, not a
+            // count of live entries, so no "Size unchanged" reading can distinguish an untouched
+            // registry from a half-emptied one.
+            Check("...while ComponentRegistry.Size does NOT shrink — it is a monotonic high-water mark",
+                ComponentRegistry.Size, sizeBeforeRemoveType);
+
+            // ...and this is what a working clear actually leaves behind. `ArrayRegistry` keeps the
+            // factory, so the type is half-registered in exactly the shape the AOT negative control
+            // dies in — the removal reproduced the crash instead of resetting anything.
+            Check("ArrayRegistry still hands out Doomed2[] after a SUCCESSFUL ComponentRegistry removal",
+                ArrayRegistryHandsOut<Doomed2>(), "Doomed2[]");
+
+            var afterRemoveType = World.Create();
+            var createAfterRemoveType = "created normally";
+            try
+            {
+                afterRemoveType.Create(new Doomed2 { N = 2 });
+            }
+            catch (Exception ex)
+            {
+                createAfterRemoveType = ex.GetType().Name + ": " + ex.Message;
+            }
+
+            Report("first world.Create<Doomed2> after the WORKING Remove(Type)", createAfterRemoveType);
+            World.Destroy(afterRemoveType);
+
+            Check("...and Payload's factory is untouched by either clear", ArrayRegistryHandsOut(), "Payload[]");
         }
         catch (Exception ex)
         {
@@ -572,6 +732,250 @@ internal static class ArchExercise
         {
             // Report-only: an unreadable Count is not a failing claim about Arch.
             return -1;
+        }
+    }
+
+    /// <summary>
+    /// The ids <c>World.Destroy</c> / <c>world.Dispose</c> have enqueued and nothing has dequeued, or
+    /// <c>null</c> where the target cannot reflect the private static. Reading the queue's CONTENTS —
+    /// not just its <c>Count</c> — is what lets the id-reuse claim be asserted as a property ("the new
+    /// world took one of the freed ids") instead of as an equality against a concrete id, which would
+    /// only hold while the queue happens to be empty.
+    /// </summary>
+    private static List<int> RecycledWorldIds()
+    {
+        try
+        {
+            FieldInfo queueField = null;
+            foreach (var field in typeof(World).GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (!field.Name.Contains("RecycledWorldIds", StringComparison.Ordinal)) continue;
+                queueField = field;
+                break;
+            }
+
+            if (queueField?.GetValue(null) is not System.Collections.IEnumerable queue) return null;
+
+            var ids = new List<int>();
+            foreach (var id in queue)
+            {
+                if (id is int value) ids.Add(value);
+            }
+
+            return ids;
+        }
+        catch (Exception)
+        {
+            // Report-only: an unreadable queue is not a failing claim about Arch.
+            return null;
+        }
+    }
+
+    /// <summary>The recycled-id queue's length, or <c>"&lt;unreadable&gt;"</c>.</summary>
+    private static string RecycledWorldIdCount()
+    {
+        var ids = RecycledWorldIds();
+        return ids == null ? "<unreadable>" : ids.Count.ToString();
+    }
+
+    /// <summary>
+    /// Every non-const static field declared anywhere in Arch's assembly, not only on <c>World</c> —
+    /// because "<c>World.Destroy</c> per live world, <b>nothing more</b>" is a claim about Arch's
+    /// process-wide state, and enumerating one type cannot carry it. Fields are grouped into the set
+    /// A7 names and the rest; the rest is what the caller checks is empty.
+    /// <para>
+    /// Generic type definitions (<c>Component&lt;T&gt;</c>, <c>EventType&lt;T&gt;</c>,
+    /// <c>JobMeta&lt;T&gt;</c>) carry one static set PER type argument, which no reflection walk can
+    /// enumerate without the closed types; they are counted and named rather than read. Compiler-
+    /// generated lambda caches (<c>&lt;&gt;c</c>) are counted separately — they are write-once
+    /// memoisation with no observable state. As everywhere else here, a trimmed/AOT target that
+    /// cannot enumerate its own assembly reports so and yields an EMPTY set, so the check degrades to
+    /// vacuous on that leg rather than failing.
+    /// </para>
+    /// </summary>
+    private static (bool Found, int Named, int Unnamed) ProbeArchStatics(Action<string, object> report)
+    {
+        // The types whose statics ACCUMULATE with use — the ones a reset hook would have to reach,
+        // and the ones A7 has to answer for one by one.
+        var accumulating = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Arch.Core.World",
+            "Arch.Core.ComponentRegistry",
+            "Arch.Core.ArrayRegistry",
+            "Arch.Core.Component",
+            "Arch.Core.JobMeta",
+            "Arch.Core.Events.EventTypeRegistry",
+        };
+
+        // ...and the ones that are `static` without being state: `Null` sentinels Arch initialises
+        // once and a padding constant. They are non-`readonly` (so a walk that filtered on `readonly`
+        // would miss the accumulators AND these alike), and they are named here rather than filtered
+        // out silently, because "nothing more" has to be a claim about the WHOLE enumerated set.
+        var sentinels = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Arch.Core.Entity",
+            "Arch.Core.Signature",
+            "Arch.Core.QueryDescription",
+            "Arch.Core.Utils.BitSet",
+        };
+
+        var namedCount = 0;
+        var sentinelCount = 0;
+        var unnamedCount = 0;
+        var lambdaCaches = 0;
+        var perTypeArgument = new List<string>();
+        var namedFields = new List<string>();
+        var sentinelFields = new List<string>();
+        var unnamedFields = new List<string>();
+
+        try
+        {
+            Type[] types;
+            try
+            {
+                types = typeof(World).Assembly.GetTypes();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                types = Array.FindAll(ex.Types, t => t != null);
+            }
+
+            foreach (var type in types)
+            {
+                FieldInfo[] fields;
+                try
+                {
+                    fields = type.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+
+                var mutable = 0;
+                foreach (var field in fields)
+                {
+                    if (!field.IsLiteral) mutable++;
+                }
+
+                if (mutable == 0) continue;
+
+                var name = type.FullName ?? type.Name;
+
+                if (type.IsGenericTypeDefinition)
+                {
+                    perTypeArgument.Add(name + " (" + mutable + ")");
+                    continue;
+                }
+
+                if (name.Contains("<>", StringComparison.Ordinal))
+                {
+                    lambdaCaches += mutable;
+                    continue;
+                }
+
+                foreach (var field in fields)
+                {
+                    if (field.IsLiteral) continue;
+
+                    object value;
+                    try
+                    {
+                        value = field.GetValue(null);
+                    }
+                    catch (Exception ex)
+                    {
+                        value = "<unreadable: " + ex.GetType().Name + ">";
+                    }
+
+                    var rendered = "   " + name + "." + field.Name + " = " + Describe(value);
+                    if (accumulating.Contains(name))
+                    {
+                        namedCount++;
+                        namedFields.Add(rendered);
+                    }
+                    else if (sentinels.Contains(name))
+                    {
+                        sentinelCount++;
+                        sentinelFields.Add(rendered);
+                    }
+                    else
+                    {
+                        unnamedCount++;
+                        unnamedFields.Add(rendered);
+                    }
+                }
+            }
+
+            report?.Invoke("Arch assembly types enumerated", types.Length);
+            report?.Invoke("ACCUMULATING statics (the set A7 must answer for)", namedCount);
+            foreach (var field in namedFields) report?.Invoke(field, string.Empty);
+            report?.Invoke("sentinel / config statics (static, but not state)", sentinelCount);
+            foreach (var field in sentinelFields) report?.Invoke(field, string.Empty);
+            report?.Invoke("mutable statics in NEITHER named set", unnamedCount);
+            foreach (var field in unnamedFields) report?.Invoke(field, string.Empty);
+            report?.Invoke("compiler-generated lambda caches (write-once, ignored)", lambdaCaches);
+            report?.Invoke("per-type-argument statics (one set per T, not enumerable, not resettable)",
+                perTypeArgument.Count == 0 ? "(none reflectable on this target)" : string.Join(", ", perTypeArgument));
+
+            return (true, namedCount, unnamedCount);
+        }
+        catch (Exception ex)
+        {
+            report?.Invoke("assembly-wide static enumeration", "unavailable on this target: " + ex.GetType().Name);
+            return (false, namedCount, unnamedCount);
+        }
+    }
+
+    /// <summary>
+    /// The FIRST component-type registry's declared static surface, enumerated the same way
+    /// <see cref="ProbeArrayRegistry"/> does the second one — because "Arch ships no working registry
+    /// reset" is a claim about a set of entry points, and this registry ships THREE <c>Remove</c>
+    /// overloads that do not behave alike. Returns how many members are named Clear/Reset (the caller
+    /// checks it is zero: what exists is Remove/Replace, and the exercise invokes both Remove shapes
+    /// rather than generalising from one). A target that cannot reflect it yields zero, vacuously.
+    /// </summary>
+    private static (bool Found, int ClearOrReset) ProbeComponentRegistry(Action<string, object> report)
+    {
+        var clearOrReset = 0;
+
+        try
+        {
+            var type = typeof(ComponentRegistry);
+            var members = new List<string>();
+
+            foreach (var method in type.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly))
+            {
+                var rendered = new List<string>();
+                foreach (var parameter in method.GetParameters()) rendered.Add(parameter.ParameterType.Name);
+                members.Add(method.Name + "(" + string.Join(", ", rendered) + ")");
+            }
+
+            foreach (var property in type.GetProperties(BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly))
+            {
+                members.Add(property.Name);
+            }
+
+            members.Sort(StringComparer.Ordinal);
+
+            report?.Invoke("   ComponentRegistry static members reflected", members.Count);
+            report?.Invoke("   ComponentRegistry public static surface",
+                members.Count == 0 ? "(none reflectable on this target)" : string.Join(", ", members));
+
+            foreach (var name in members)
+            {
+                if (name.Contains("Clear", StringComparison.Ordinal) || name.Contains("Reset", StringComparison.Ordinal))
+                {
+                    clearOrReset++;
+                }
+            }
+
+            return (true, clearOrReset);
+        }
+        catch (Exception ex)
+        {
+            report?.Invoke("ComponentRegistry surface reflected", "unavailable on this target: " + ex.GetType().Name);
+            return (false, clearOrReset);
         }
     }
 
