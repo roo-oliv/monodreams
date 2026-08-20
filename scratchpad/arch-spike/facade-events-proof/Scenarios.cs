@@ -792,8 +792,10 @@ internal static class Scenarios
         var world = EcsWorld.Create();
         var log = new List<string>();
 
-        // Subscription order mints the facade's component-type ids: Transform = 0, AudioSource = 1,
-        // LevelData = 2, CurrentLevel = 3 — world and entity components share one registry.
+        // Subscription order takes the teardown slots: EntityDisposed = 0, Transform = 1,
+        // AudioSource = 2, world LevelData = 3, world CurrentLevel = 4 — one channel list, entity
+        // and world legs alike (M4d). This fixture subscribes in the phase order on purpose, so its
+        // log is also what a three-phase cascade would produce; S10 is where they come apart.
         world.SubscribeEntityDisposed((in Entity entity) => log.Add($"EntityDisposed({Mark(entity)})"));
         world.SubscribeEntityComponentRemoved((in Entity entity, in Transform value) =>
             log.Add($"Removed(Transform #{value.X} on {Mark(entity)})"));
@@ -903,7 +905,7 @@ internal static class Scenarios
             var log = new List<string>();
             var carriers = new List<Entity>();
 
-            // Subscription order mints the ids: Transform = 0, AudioSource = 1, LevelData = 2.
+            // Subscription order takes the slots: EntityDisposed, Transform, AudioSource, world LevelData.
             world.SubscribeEntityDisposed((in Entity entity) => log.Add($"EntityDisposed({Mark(entity)})"));
             world.SubscribeEntityComponentRemoved((in Entity entity, in Transform value) =>
                 log.Add($"Removed(Transform #{value.X} on {Mark(entity)})"));
