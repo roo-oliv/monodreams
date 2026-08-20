@@ -279,6 +279,51 @@ internal static class ArchExercise
             World.Destroy(nextWorld);
             Report("=> the recycled-id queue is process-lifetime", "World.Destroy enqueues, World.Create dequeues; nothing drains it");
 
+            // A7's reset hook has to WALK `World.Worlds`, and the walk shape is not free to choose.
+            // Every Destroy above freed the HIGHEST live id, so the only hole those could leave is at
+            // the end of the array — where `World.WorldSize` is still a valid bound and the naive
+            // `for (i < World.WorldSize) World.Destroy(World.Worlds[i])` hook happens to work. The
+            // engine's shape is the other one: worlds are created and destroyed out of order across
+            // screens, so a hole opens BELOW a live world. `World.WorldSize` is a COUNT of live
+            // worlds, not a high-water mark, so on that shape the naive hook reads a null slot and
+            // never reaches the world sitting above it.
+            var pairA = World.Create();
+            var pairB = World.Create();
+            var lowerWorld = pairA.Id < pairB.Id ? pairA : pairB;
+            var upperWorld = pairA.Id < pairB.Id ? pairB : pairA;
+            var lowerWorldId = lowerWorld.Id;
+            var upperWorldId = upperWorld.Id;
+            World.Destroy(lowerWorld);   // the NON-highest live id: the hole lands in the MIDDLE
+
+            Check("destroying a NON-highest id nulls the low slot", World.Worlds[lowerWorldId] == null, true);
+            Check("...while the higher-id world stays live", ReferenceEquals(World.Worlds[upperWorldId], upperWorld), true);
+
+            var nullsUnderSize = 0;
+            for (var i = 0; i < World.WorldSize; i++)
+            {
+                if (World.Worlds[i] == null) nullsUnderSize++;
+            }
+
+            var liveBeyondSize = 0;
+            for (var i = World.WorldSize; i < World.Worlds.Length; i++)
+            {
+                if (World.Worlds[i] != null) liveBeyondSize++;
+            }
+
+            Check("a `for (i < World.WorldSize)` sweep would read a NULL slot", nullsUnderSize, 1);
+            Check("...and leak this many LIVE worlds past its bound", liveBeyondSize, 1);
+
+            // The shape that does hold, and the one A7 has to name instead.
+            var liveByLength = 0;
+            for (var i = 0; i < World.Worlds.Length; i++)
+            {
+                if (World.Worlds[i] != null) liveByLength++;
+            }
+
+            Check("walking World.Worlds by LENGTH, skipping nulls, sees every live world", liveByLength, World.WorldSize);
+            World.Destroy(upperWorld);
+            Check("World.WorldSize back to baseline after the sparse pair", World.WorldSize, worldSizeBaseline);
+
             // And the enumeration itself, so "nothing more" stops being an assumption. Reflection
             // over another assembly's statics is exactly what a trimmed/AOT image may not answer, so
             // this is REPORTED per target rather than checked: a leg that cannot see the fields says
@@ -299,7 +344,10 @@ internal static class ArchExercise
                         value = "<unreadable: " + ex.GetType().Name + ">";
                     }
 
-                    Report("   World." + field.Name, value == null ? "null" : value.ToString());
+                    // Collection-valued statics report their COUNT, so "never returns to baseline"
+                    // is a number (the recycled-id queue holds the two ids freed above) instead of
+                    // an inference from a type name.
+                    Report("   World." + field.Name, Describe(value));
                 }
             }
             catch (Exception ex)
@@ -307,11 +355,81 @@ internal static class ArchExercise
                 Report("static-field enumeration of World", "unavailable on this target: " + ex.GetType().Name);
             }
 
+            // `World.SharedJobScheduler` reads `null` above — but that is equally consistent with
+            // "nothing ever set it" and with "World.Destroy clears it", and A7 tells wave 2 to rely
+            // on the SECOND reading the moment it installs a scheduler for a parallel runner. So the
+            // claim is measured with a SENTINEL rather than read off a null. Installing one needs an
+            // instance of Arch's scheduler type without running its constructor (it starts worker
+            // threads, which the WASM leg has none of), i.e. exactly the reflection a trimmed/AOT
+            // image may refuse — so the probe REPORTS whether it could install one, and the check
+            // below degrades to "never observed being cleared" where it could not.
+            var schedulerOutcome = "unavailable: no SharedJobScheduler backing field";
+            FieldInfo schedulerField = null;
+            try
+            {
+                foreach (var field in typeof(World).GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (!field.Name.Contains("SharedJobScheduler", StringComparison.Ordinal)) continue;
+                    schedulerField = field;
+                    break;
+                }
+
+                if (schedulerField != null)
+                {
+                    var sentinel = RuntimeHelpers.GetUninitializedObject(schedulerField.FieldType);
+                    schedulerField.SetValue(null, sentinel);
+
+                    var schedulerProbeWorld = World.Create();
+                    World.Destroy(schedulerProbeWorld);
+
+                    schedulerOutcome = ReferenceEquals(schedulerField.GetValue(null), sentinel)
+                        ? "sentinel SURVIVED World.Create + World.Destroy"
+                        : "CLEARED by World.Create/World.Destroy";
+                }
+            }
+            catch (Exception ex)
+            {
+                schedulerOutcome = "unavailable: " + ex.GetType().Name;
+            }
+            finally
+            {
+                // Back to the baseline every other leg reads, whatever happened above.
+                try
+                {
+                    schedulerField?.SetValue(null, null);
+                }
+                catch (Exception)
+                {
+                    // Nothing else in this exercise reads the scheduler; a target that cannot write
+                    // the field could not have installed the sentinel either.
+                }
+            }
+
+            Report("World.SharedJobScheduler sentinel across Create+Destroy", schedulerOutcome);
+            Check("World.SharedJobScheduler is never CLEARED by World.Destroy",
+                schedulerOutcome.StartsWith("CLEARED", StringComparison.Ordinal), false);
+
             // The other half, and the one C12 gets wrong: the component-type registry is NOT
             // world-scoped. It survives every Destroy, which is what makes the world above usable
             // at all — and it is why "reset the component statics to baseline" cannot be a hook.
             Check("ComponentRegistry.Size is unchanged by World.Destroy", ComponentRegistry.Size, registryBaseline);
             Check("ComponentRegistry.Has<Payload>() survives World.Destroy", ComponentRegistry.Has<Payload>(), true);
+
+            // C12 says component-type registrIES, plural, and Arch really does have two.
+            // `ComponentRegistry` is the one the checks above cover; `ArrayRegistry` is the one the
+            // AOT negative control DIES in (`ArrayRegistry.GetArray`, finding 2), the one the AOT
+            // generator primes through `ArchCoreUtilsShim`, and the one that keeps `Doomed` usable
+            // after the half-clear below. It is enumerated the same way — and the surface IS the
+            // finding: it registers and it hands out arrays, and it has no size, no clear, no remove.
+            var arrayRegistryBefore = ProbeArrayRegistry(Report);
+            Check("ArrayRegistry ships NO clear/reset/size entry point either",
+                arrayRegistryBefore.ClearingMembers, 0);
+
+            // Its store is indexed by component id and exposes no count, so "process-lifetime" is
+            // measured the only way it can be: the factory registered by the worlds destroyed above
+            // still hands out an array.
+            Report("ArrayRegistry.GetArray(Payload, 1) after every World.Destroy so far", ArrayRegistryHandsOut());
+            Check("ArrayRegistry keeps handing out Payload[] across World.Destroy", ArrayRegistryHandsOut(), "Payload[]");
 
             // ...and there is no way to clear it anyway: Arch 2.1.0's only entry point for that is
             // BROKEN. `Doomed` exists solely for this probe — it is left in a half-cleared state
@@ -364,6 +482,14 @@ internal static class ArchExercise
 
             Report("first world.Create<Doomed> after the clear", createOutcome);
             World.Destroy(afterClear);
+
+            // ...and the SECOND registry is what decides that outcome: `ComponentRegistry.Remove<T>`
+            // reaches nothing here, so a target whose ArrayRegistry was primed by the generator
+            // still finds `Doomed[]` and a lazily-registered one dies in `ArrayRegistry.GetArray`.
+            // Neither registry is emptied by anything — that is the process-lifetime claim, and it
+            // is a claim about BOTH of them.
+            Report("ArrayRegistry.GetArray(Doomed, 1) after the ComponentRegistry clear", ArrayRegistryHandsOut<Doomed>());
+            Check("...and Payload's factory is untouched by that clear", ArrayRegistryHandsOut(), "Payload[]");
         }
         catch (Exception ex)
         {
@@ -394,4 +520,156 @@ internal static class ArchExercise
         report.AppendLine($"== {checks} checks, {failures} failed ==");
         return (failures, report.ToString());
     }
+
+    /// <summary>
+    /// A static's value plus its <c>Count</c> when it has one — so a process-lifetime accumulator
+    /// (the recycled-id queue, the array factories) reports a NUMBER instead of a type name.
+    /// Reflection over another assembly's generics is not guaranteed on a trimmed/AOT target, so an
+    /// unreadable count degrades to the plain value rather than to a failure.
+    /// </summary>
+    private static string Describe(object value)
+    {
+        if (value == null) return "null";
+
+        var count = CountOf(value);
+        return count < 0 ? value.ToString() : value + "  (Count = " + count + ")";
+    }
+
+    /// <summary>Every int-valued instance property of a store, so its SIZE surface is enumerated too.</summary>
+    private static string IntProperties(object value)
+    {
+        if (value == null) return string.Empty;
+
+        var rendered = new List<string>();
+        try
+        {
+            foreach (var property in value.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (property.PropertyType != typeof(int) || property.GetIndexParameters().Length != 0) continue;
+                rendered.Add(property.Name + " = " + property.GetValue(value));
+            }
+        }
+        catch (Exception ex)
+        {
+            rendered.Add("<unreadable: " + ex.GetType().Name + ">");
+        }
+
+        return rendered.Count == 0 ? "(no int-valued size surface)" : "[" + string.Join(", ", rendered) + "]";
+    }
+
+    /// <summary>The value's <c>Count</c>, or <c>-1</c> when it has none or the target cannot read it.</summary>
+    private static int CountOf(object value)
+    {
+        if (value == null) return -1;
+
+        try
+        {
+            var count = value.GetType().GetProperty("Count", BindingFlags.Public | BindingFlags.Instance);
+            if (count == null || count.PropertyType != typeof(int) || count.GetIndexParameters().Length != 0) return -1;
+            return (int)count.GetValue(value);
+        }
+        catch (Exception)
+        {
+            // Report-only: an unreadable Count is not a failing claim about Arch.
+            return -1;
+        }
+    }
+
+    /// <summary>
+    /// The second component-type registry, enumerated exactly like <c>World</c>'s statics: its
+    /// backing store (with a count) and its declared static surface, from which the clear/reset/size
+    /// member count — the number A7 needs — is derived. A target that cannot reflect it reports
+    /// <c>Found == false</c> and yields zero clearing members, which is what the caller checks.
+    /// </summary>
+    private static (bool Found, int ClearingMembers) ProbeArrayRegistry(Action<string, object> report)
+    {
+        var clearing = 0;
+
+        try
+        {
+            var type = typeof(World).Assembly.GetType("Arch.Core.ArrayRegistry");
+            report?.Invoke("Arch.Core.ArrayRegistry reflected", type != null);
+            if (type == null) return (false, clearing);
+
+            foreach (var field in type.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                object value;
+                try
+                {
+                    value = field.GetValue(null);
+                }
+                catch (Exception ex)
+                {
+                    value = "<unreadable: " + ex.GetType().Name + ">";
+                }
+
+                report?.Invoke("   ArrayRegistry." + field.Name, Describe(value) + " " + IntProperties(value));
+            }
+
+            var members = new List<string>();
+            foreach (var method in type.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly))
+            {
+                var parameters = method.GetParameters();
+                var rendered = new List<string>();
+                foreach (var parameter in parameters) rendered.Add(parameter.ParameterType.Name);
+                members.Add(method.Name + "(" + string.Join(", ", rendered) + ")");
+            }
+
+            foreach (var property in type.GetProperties(BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly))
+            {
+                members.Add(property.Name);
+            }
+
+            members.Sort(StringComparer.Ordinal);
+
+            // The COUNT is reported next to the surface because it is what makes the clearing-member
+            // check readable: NativeAOT strips this type's member metadata (measured — the AOT leg
+            // reflects the type but enumerates zero fields and zero methods, while `World`'s fields
+            // survive because `typeof(World)` is statically referenced), so on that leg the check
+            // below passes over an EMPTY set. The surface claim is carried by the legs that can
+            // still see it.
+            report?.Invoke("   ArrayRegistry static members reflected", members.Count);
+            report?.Invoke("   ArrayRegistry public static surface",
+                members.Count == 0 ? "(none reflectable on this target)" : string.Join(", ", members));
+
+            foreach (var name in members)
+            {
+                if (name.Contains("Clear", StringComparison.Ordinal)
+                    || name.Contains("Remove", StringComparison.Ordinal)
+                    || name.Contains("Reset", StringComparison.Ordinal)
+                    || name.Contains("Size", StringComparison.Ordinal)
+                    || name.Contains("Count", StringComparison.Ordinal))
+                {
+                    clearing++;
+                }
+            }
+
+            return (true, clearing);
+        }
+        catch (Exception ex)
+        {
+            report?.Invoke("Arch.Core.ArrayRegistry reflected", "unavailable on this target: " + ex.GetType().Name);
+            return (false, clearing);
+        }
+    }
+
+    /// <summary>
+    /// What <c>ArrayRegistry</c> hands out for a component type today — the array's type name, or the
+    /// exception the AOT negative control dies of. It is the only readable answer about that store:
+    /// it is indexed by component id and exposes no count (see <see cref="ProbeArrayRegistry"/>).
+    /// </summary>
+    private static string ArrayRegistryHandsOut<T>()
+    {
+        try
+        {
+            var array = Arch.Core.ArrayRegistry.GetArray(typeof(T), 1);
+            return array == null ? "null" : array.GetType().Name;
+        }
+        catch (Exception ex)
+        {
+            return ex.GetType().Name + ": " + ex.Message;
+        }
+    }
+
+    private static string ArrayRegistryHandsOut() => ArrayRegistryHandsOut<Payload>();
 }

@@ -102,6 +102,8 @@ internal static class Scenarios
         WorldTeardownCascade(report);
         WorldTeardownWithSweepingHandler(report);
         WorldTeardownWithWorldDisposingHandler(report);
+        TeardownChannelOrderAcrossLegs(report);
+        WorldTeardownWithThrowingHandler(report);
     }
 
     // ===========================================================================================
@@ -294,8 +296,15 @@ internal static class Scenarios
 
             log.Clear();
             entity.Dispose();
-            report.Check("Dispose fires EntityDisposed first", log.Count > 0 ? log[0] : "<none>", "EntityDisposed");
-            report.Check("Dispose then fires ComponentRemoved per component", log.Count, 2);
+
+            // Item 40 says "EntityDisposed, then ComponentRemoved per present component". Measured
+            // (M4d world D), that is not a phase order but this world's SUBSCRIPTION order: here
+            // EntityDisposed was subscribed LAST, after both component channels, and DefaultEcs
+            // 0.18.0-beta01 reports it last on exactly that fixture. S7 has the other order because
+            // it subscribes EntityDisposed first.
+            report.Check("Dispose reports the channels in SUBSCRIPTION order (EntityDisposed last here)",
+                string.Join(" | ", log), "Removed(AudioSource thunder) | EntityDisposed");
+            report.Check("Dispose fires ComponentRemoved per present component", log.Count, 2);
             report.CheckTrue("entity reads IsAlive == true inside the Dispose handler", aliveInsideDisposeHandler);
             report.Check("entity is dead once Dispose returned", entity.IsAlive, false);
 
@@ -768,8 +777,13 @@ internal static class Scenarios
     //     "subscription order" (what M4c measured DefaultEcs doing) from "the order they were Set"
     //     and from a raw Dictionary walk.
     //
-    // Every handler here is INERT (it only logs). That is the scope of the three orders asserted
-    // below: S8 measures what a MUTATING handler does to them, and it is not the same shape.
+    // Every handler here is INERT (it only logs). That is the scope of the orders asserted below:
+    // S8 measures what a MUTATING handler does to them, and it is not the same shape.
+    //
+    // NOTE on what this fixture can and cannot show: its subscriptions are made in the order
+    // EntityDisposed → entity components → world components, so its log agrees with "three phases"
+    // and with "one channel list in subscription order" at the same time. S10 is the fixture that
+    // separates them (M4d does it on DefaultEcs), and the answer is the channel list.
     // ===========================================================================================
     private static void WorldTeardownCascade(ProofReport report)
     {
@@ -850,15 +864,15 @@ internal static class Scenarios
 
         report.Note("Item 50 must be restated before wave 1 writes its contract test: DefaultEcs 0.18.0-beta01 " +
                     "fires this same cascade in this same order, so 'event-silent' would be a " +
-                    "behaviour CHANGE, not parity. The ORDER is facade-imposed on FOUR axes: entity id for " +
-                    "the walk (Arch enumerates reversed — S0), registration id for the entity-component " +
-                    "pools (Arch's archetype signature order is backend-defined), publication order for " +
-                    "query membership, and registration id again between world components (a raw Dictionary " +
-                    "walk would have been BCL insertion order — defined by nothing).");
-        report.Note("SCOPE: the three orders asserted above hold while no handler MUTATES during the " +
+                    "behaviour CHANGE, not parity. The ORDER is facade-imposed on THREE axes: entity id " +
+                    "within a channel (Arch enumerates reversed — S0), publication order for query " +
+                    "membership, and — carrying both the entity-component pools and the world components — " +
+                    "this world's SUBSCRIPTION order over one channel list (Arch's archetype signature order " +
+                    "and BCL Dictionary enumeration are what the facade would otherwise inherit there).");
+        report.Note("SCOPE: the orders asserted above hold while no handler MUTATES during the " +
                     "cascade. Every handler here only logs. S8 runs the engine's real unload sweep from " +
                     "inside teardown and measures what survives — pool-grouping does not, and neither does " +
-                    "'world components last'.");
+                    "this fixture's world-components-last shape.");
         report.Note("Post-teardown query membership and subscription clearing are facade GUARANTEES, not " +
                     "parity: DefaultEcs was measured (M6) to leave EntitySet.Count stale after world.Dispose " +
                     "and to throw NullReferenceException when that set is enumerated. Nothing in the engine " +
@@ -876,7 +890,8 @@ internal static class Scenarios
     // Every leg here uses S7's IDENTITY-carrying fixture (a marker in Transform.X, and one carrier
     // holding a SECOND subscribed component type) and asserts the FULL sequence, because the whole
     // point of these legs is what a mutating handler does to the ORDER — which count-only asserts
-    // cannot see. The measured answer is that BOTH of S7's teardown orders break here.
+    // cannot see. The measured answer is that BOTH of the shapes S7 shows break here: pool-grouping
+    // collapses to per-entity, and ComponentRemoved lands after WorldComponentRemoved.
     // ===========================================================================================
     private static void WorldTeardownWithSweepingHandler(ProofReport report)
     {
@@ -960,8 +975,11 @@ internal static class Scenarios
 
             report.Note("Wave 1 owns this as a REAL hazard, not a curiosity: AudioSystem.OnAudioSourceRemoved and " +
                         "the LDtk sweep both run twice at world teardown TODAY. Item 50's restatement has to say " +
-                        "which of the two is the contract — and it must scope S7's ordering claims to teardowns " +
-                        "with INERT handlers, because the engine runs this shape at every screen change.");
+                        "which of the two is the contract — and it must scope the ordering claims to teardowns " +
+                        "with INERT handlers, because the engine runs this shape at every screen change. The " +
+                        "re-reported entities go through DisposeEntity, which walks the SAME channel list for one " +
+                        "entity (S10) — that is why the collapse is per-entity and why it can land after the " +
+                        "world-component channel that triggered it.");
         }
 
         // --- leg B: the same sweep from the EntityDisposed leg — the recursion case ---------------
@@ -1075,19 +1093,28 @@ internal static class Scenarios
     }
 
     // ===========================================================================================
-    // S9 — the OTHER re-entrancy: a handler that calls world.Dispose from inside world.Dispose.
+    // S9 — the OTHER re-entrancy: a handler that calls world.Dispose from inside a disposal.
     //
-    // S8's legs re-enter entity disposal; this one re-enters WORLD disposal. Six engine sites call
-    // world.Dispose (screen teardown, Game.UnloadContent, the editor's world swap), so a handler
-    // that reaches a second one is a live shape rather than a thought experiment. Without a guard
-    // set BEFORE the cascade, the second call passes the `_disposed` check (which only flips in the
-    // finally), re-snapshots a still-live world and replays every event — measured at 3x on two
-    // carriers before a probe cap stopped it.
+    // S8's legs re-enter entity disposal; these re-enter WORLD disposal, from both directions. Six
+    // engine sites call world.Dispose (screen teardown, Game.UnloadContent, the editor's world
+    // swap), so a handler that reaches a second one is a live shape rather than a thought
+    // experiment.
+    //
+    //   leg A — world.Dispose from inside world.Dispose. Without a guard set BEFORE the cascade the
+    //           second call passes the `_disposed` check (which only flips in the finally),
+    //           re-snapshots a still-live world and replays every event — measured at 3x on two
+    //           carriers before a probe cap stopped it.
+    //   leg B — world.Dispose from inside a NORMAL entity.Dispose (the crossed direction). The
+    //           nested teardown runs to completion, destroying the Arch world, and then the outer
+    //           DisposeEntity resumes: without a guard it goes on to bump versions and call
+    //           _arch.Destroy against a world that no longer exists.
     // ===========================================================================================
     private static void WorldTeardownWithWorldDisposingHandler(ProofReport report)
     {
-        report.Scenario("S9 — a handler that calls world.Dispose DURING world.Dispose (re-entrancy)");
+        report.Scenario("S9 — a handler that calls world.Dispose DURING a disposal (re-entrancy, both directions)");
 
+        // --- leg A: world.Dispose from inside world.Dispose ---------------------------------------
+        {
         var world = EcsWorld.Create();
         var log = new List<string>();
         var nestedCalls = 0;
@@ -1126,21 +1153,241 @@ internal static class Scenarios
         world.Dispose();
 
         var sequence = string.Join(" | ", log);
-        report.Observe("S9 event sequence", sequence);
+        report.Observe("leg A event sequence", sequence);
         report.Observe("nested world.Dispose calls made by the handler", nestedCalls);
 
-        report.Check("S9: the nested Dispose is a NO-OP — one event per entity", sequence,
+        report.Check("leg A: the nested Dispose is a NO-OP — one event per entity", sequence,
             "EntityDisposed(#1) | EntityDisposed(#2) | "
             + "Removed(Transform #1 on #1) | Removed(Transform #2 on #2)");
-        report.Check("S9: the handler really did re-enter Dispose", nestedCalls, 2);
-        report.Check("S9: the probe cap was never needed (the guard terminated it)", probeCapHits, 0);
-        report.CheckTrue("S9: every carrier is dead once Dispose returned", AllDead(carriers.ToArray()));
-        report.Check("S9: the world is fully torn down", world.SubscriberCount, 0);
+        report.Check("leg A: the handler really did re-enter Dispose", nestedCalls, 2);
+        report.Check("leg A: the probe cap was never needed (the guard terminated it)", probeCapHits, 0);
+        report.CheckTrue("leg A: every carrier is dead once Dispose returned", AllDead(carriers.ToArray()));
+        report.Check("leg A: the world is fully torn down", world.SubscriberCount, 0);
         report.Note("PARITY, not an invention: M7 measured DefaultEcs 0.18.0-beta01 on this exact shape — 2 " +
                     "carriers, 2 EntityDisposed, 2 ComponentRemoved, the depth cap never hit. The guard has to " +
                     "be a flag set BEFORE the cascade and separate from `_disposed`, because entities must still " +
                     "read IsAlive == true inside their own teardown handlers (S8 leg A asserts that) and IsAlive " +
                     "keys on `_disposed`.");
+        }
+
+        // --- leg B: the CROSSED direction — world.Dispose from inside a normal entity.Dispose -----
+        //
+        // Nothing in the engine forbids it: an EntityDisposed handler that decides the screen is
+        // over calls world.Dispose, and the entity whose disposal it is sitting inside is still
+        // mid-flight. The nested teardown runs to COMPLETION — it destroys the Arch world — and
+        // then the outer DisposeEntity resumes with an Arch world that no longer exists.
+        {
+            var world = EcsWorld.Create();
+            var log = new List<string>();
+            var nested = 0;
+
+            world.SubscribeEntityDisposed((in Entity entity) =>
+            {
+                log.Add($"EntityDisposed({Mark(entity)})");
+                nested++;
+                world.Dispose();
+            });
+            world.SubscribeEntityComponentRemoved((in Entity entity, in Transform value) =>
+                log.Add($"Removed(Transform #{value.X} on {Mark(entity)})"));
+
+            var carriers = new List<Entity>();
+            for (var i = 1; i <= 2; i++)
+            {
+                var carrier = world.CreateEntity();
+                carrier.Set(new Transform { X = i, Y = i });
+                carriers.Add(carrier);
+            }
+
+            var threw = "returned normally";
+            try
+            {
+                carriers[0].Dispose();   // a NORMAL entity disposal — the world teardown rides it
+            }
+            catch (Exception exception)
+            {
+                threw = exception.GetType().Name + ": " + exception.Message;
+            }
+
+            var sequence = string.Join(" | ", log);
+            report.Observe("leg B event sequence", sequence);
+            report.Check("leg B: entity.Dispose returns normally even though the world went with it", threw,
+                "returned normally");
+
+            // The first EntityDisposed is the outer entity.Dispose; the teardown it triggers then
+            // reports the SAME entity again (it is still alive at that point — S8 leg A's parity)
+            // and its sibling, before the component channel runs for both.
+            report.Check("leg B: the FULL sequence of the crossed teardown", sequence,
+                "EntityDisposed(#1) | EntityDisposed(#1) | EntityDisposed(#2) | "
+                + "Removed(Transform #1 on #1) | Removed(Transform #2 on #2)");
+            report.Check("leg B: the handler re-entered from both entities", nested, 3);
+            report.CheckTrue("leg B: every carrier is dead once it returned", AllDead(carriers.ToArray()));
+            report.Check("leg B: the world is fully torn down", world.SubscriberCount, 0);
+            report.Check("leg B: and it holds no query registrations", world.QueryCount, 0);
+
+            // The surface a resumed DisposeEntity would have touched, now that the world is gone:
+            // before the guard, CreateEntity handed back a dead handle and a singleton Set stored a
+            // value on a destroyed world (Has<T>() == true, and nothing left to ever remove it).
+            report.Throws<InvalidOperationException>("leg B: CreateEntity on the disposed world throws",
+                () => world.CreateEntity());
+            report.Throws<InvalidOperationException>("leg B: a singleton Set on the disposed world throws",
+                () => world.Set(new LevelData { Identifier = "after-teardown" }));
+            report.Check("leg B: ...so no singleton survives the teardown", world.Has<LevelData>(), false);
+
+            report.Note("The crossed direction needs its own guard: leg A's `_tearingDown` flag stops a nested " +
+                        "world.Dispose, but here the nested teardown COMPLETED, so what has to stop is the outer " +
+                        "DisposeEntity — it keys on `_disposed` and returns before touching Arch. It cannot key on " +
+                        "`_tearingDown`: disposing entities from inside a running teardown is the engine's own " +
+                        "unload sweep, which S8 leg A asserts must still double-fire.");
+            report.Note("PARITY on the sequence, a GUARANTEE on the aftermath: M8 ran this shape on DefaultEcs " +
+                        "0.18.0-beta01 and logged the same five events in the same order (EntityDisposed twice for " +
+                        "the outer entity, once for its sibling, then both components). Afterwards DefaultEcs " +
+                        "answers every one of these reads with a NullReferenceException — `Entity.IsAlive`, " +
+                        "`world.CreateEntity()` and `world.Set<T>` alike — so the facade's typed " +
+                        "InvalidOperationException is the same refusal with a message, in the same family as the " +
+                        "post-teardown query read it defines in M6.");
+        }
+    }
+
+    // ===========================================================================================
+    // S10 — the teardown order is ONE list of channels in subscription order, across BOTH legs.
+    //
+    // S7 subscribes EntityDisposed, then the entity components, then the world components, so its
+    // asserted sequence agrees with every candidate rule at once: "three phases", "world components
+    // last", "one channel list". M4d took those apart on DefaultEcs 0.18.0-beta01 and only the last
+    // survives — subscribing a world component FIRST makes it fire first, subscribing
+    // EntityDisposed LAST makes it fire last, and a type subscribed on BOTH legs takes TWO slots,
+    // each keeping its own leg's order.
+    //
+    // This scenario is that fixture on the facade: subscriptions deliberately interleaved, and
+    // LevelData subscribed on both legs (a world singleton AND a component on the carrier). It is
+    // also the regression for the shared type-id registry the facade used to keep: re-minting on
+    // the second leg reordered the world leg and collided the next type's id.
+    // ===========================================================================================
+    private static void TeardownChannelOrderAcrossLegs(ProofReport report)
+    {
+        report.Scenario("S10 — teardown walks ONE channel list in subscription order, both legs interleaved");
+
+        var world = EcsWorld.Create();
+        var log = new List<string>();
+
+        // Subscription order: world LevelData, entity Transform, entity LevelData, world
+        // CurrentLevel, EntityDisposed. Note LevelData takes a slot on EACH leg, and EntityDisposed
+        // takes the LAST one.
+        world.SubscribeWorldComponentRemoved((EcsWorld _, in LevelData value) =>
+            log.Add($"World(LevelData {value.Identifier})"));
+        world.SubscribeEntityComponentRemoved((in Entity entity, in Transform value) =>
+            log.Add($"Entity(Transform #{value.X} on {Mark(entity)})"));
+        world.SubscribeEntityComponentRemoved((in Entity entity, in LevelData value) =>
+            log.Add($"Entity(LevelData {value.Identifier} on {Mark(entity)})"));
+        world.SubscribeWorldComponentRemoved((EcsWorld _, in CurrentLevel value) =>
+            log.Add($"World(CurrentLevel {value.Identifier})"));
+        world.SubscribeEntityDisposed((in Entity entity) => log.Add($"EntityDisposed({Mark(entity)})"));
+
+        var carrier = world.CreateEntity();
+        carrier.Set(new Transform { X = 1f, Y = 1f });
+        carrier.Set(new LevelData { Identifier = "on-entity" });   // the SAME type, on the entity leg
+
+        world.Set(new CurrentLevel { Identifier = "Level_0" });
+        world.Set(new LevelData { Identifier = "singleton" });
+
+        world.Dispose();
+
+        var sequence = string.Join(" | ", log);
+        report.Observe("S10 event sequence", sequence);
+
+        report.Check("S10: the cascade follows SUBSCRIPTION order across both legs", sequence,
+            "World(LevelData singleton) | Entity(Transform #1 on #1) | "
+            + "Entity(LevelData on-entity on #1) | World(CurrentLevel Level_0) | EntityDisposed(#1)");
+        report.CheckTrue("S10: a world component can fire FIRST — 'world components last' is not a rule",
+            sequence.StartsWith("World(LevelData", StringComparison.Ordinal));
+        report.CheckTrue("S10: EntityDisposed is a channel, not a phase — subscribed last, fired last",
+            sequence.EndsWith("EntityDisposed(#1)", StringComparison.Ordinal));
+        report.CheckTrue("S10: a type on BOTH legs keeps each leg's own slot (no re-mint, no collision)",
+            sequence.IndexOf("World(LevelData", StringComparison.Ordinal)
+            < sequence.IndexOf("Entity(Transform", StringComparison.Ordinal)
+            && sequence.IndexOf("Entity(Transform", StringComparison.Ordinal)
+            < sequence.IndexOf("Entity(LevelData", StringComparison.Ordinal));
+        report.Check("S10: the disposed world holds no subscriptions", world.SubscriberCount, 0);
+        report.Note("Measured on DefaultEcs 0.18.0-beta01 by M4d, on the same three questions: world-leg-first " +
+                    "(world A/B), EntityDisposed-is-a-channel (world C) and entity.Dispose following the same " +
+                    "list (world D). Wave 1 inherits the rule as ONE order — this world's subscription order — " +
+                    "not as three phases, and item 40's 'EntityDisposed then ComponentRemoved' has to be read as " +
+                    "the order that fixture's subscriptions were made in.");
+    }
+
+    // ===========================================================================================
+    // S11 — a teardown handler that THROWS.
+    //
+    // The Dispose doc claims the try/finally exists so a throwing handler cannot leave a half-torn
+    // world behind that replays the cascade on the next call. That much is asserted here — but the
+    // other half of the shape had never been measured: what happens to the REST of the cascade.
+    // It is dropped, silently, while teardown still completes and the exception escapes to the
+    // caller. For the engine that means AudioSystem.OnAudioSourceRemoved never cuts the remaining
+    // loops and the LDtk sweep never runs, on a world that is nevertheless gone.
+    // ===========================================================================================
+    private static void WorldTeardownWithThrowingHandler(ProofReport report)
+    {
+        report.Scenario("S11 — a handler that THROWS during world.Dispose (the rest of the cascade is dropped)");
+
+        var world = EcsWorld.Create();
+        var log = new List<string>();
+        var carriers = new List<Entity>();
+
+        world.SubscribeEntityDisposed((in Entity entity) =>
+        {
+            log.Add($"EntityDisposed({Mark(entity)})");
+            if (entity.Has<Transform>() && entity.Get<Transform>().X == 2f)
+            {
+                throw new InvalidOperationException("teardown handler failed on carrier #2");
+            }
+        });
+        world.SubscribeEntityComponentRemoved((in Entity entity, in Transform value) =>
+            log.Add($"Removed(Transform #{value.X} on {Mark(entity)})"));
+        world.SubscribeWorldComponentRemoved((EcsWorld _, in LevelData __) => log.Add("WorldComponentRemoved(LevelData)"));
+
+        for (var i = 1; i <= 3; i++)
+        {
+            var carrier = world.CreateEntity();
+            carrier.Set(new Transform { X = i, Y = i });
+            carriers.Add(carrier);
+        }
+
+        world.Set(new LevelData { Identifier = "Level_0" });
+        var held = world.GetEntities().With<Transform>().AsSet();
+
+        report.Throws<InvalidOperationException>("S11: the handler's exception ESCAPES world.Dispose",
+            () => world.Dispose());
+
+        var sequence = string.Join(" | ", log);
+        report.Observe("S11 event sequence", sequence);
+
+        report.Check("S11: the cascade stops at the throw — nothing after it fires", sequence,
+            "EntityDisposed(#1) | EntityDisposed(#2)");
+        report.Check("S11: the third carrier is never reported", Starting(log, "EntityDisposed(#3)"), 0);
+        report.Check("S11: not one ComponentRemoved fires", Starting(log, "Removed(Transform"), 0);
+        report.Check("S11: WorldComponentRemoved never fires either", Starting(log, "WorldComponentRemoved"), 0);
+
+        // ...and yet the world IS torn down: that is the finally, and it is what stops the next
+        // Dispose from replaying every handler that already ran.
+        report.CheckTrue("S11: every carrier is dead anyway (the finally completed)", AllDead(carriers.ToArray()));
+        report.Check("S11: the disposed world holds no subscriptions", world.SubscriberCount, 0);
+        report.Check("S11: a query held across the failed teardown reads EMPTY", held.GetEntities().Length, 0);
+
+        var afterThrow = log.Count;
+        world.Dispose();
+        report.Check("S11: a second Dispose replays NOTHING", log.Count, afterThrow);
+        report.Note("PARTIAL PARITY, measured: M9 ran this fixture on DefaultEcs 0.18.0-beta01 and got the same " +
+                    "partial cascade — the exception escapes, 2 EntityDisposed, 0 ComponentRemoved, 0 " +
+                    "WorldComponentRemoved. What DIFFERS is the aftermath: DefaultEcs leaves all 3 carriers " +
+                    "ALIVE with a stale set of 3, and its second Dispose is silent, so the world is stuck " +
+                    "half-torn-down forever. The facade's finally completes the teardown instead — a deliberate " +
+                    "guarantee, like the post-teardown query read (M6), and one wave 1 must keep or reject " +
+                    "explicitly.");
+        report.Note("Wave 1 still has to CHOOSE the cascade policy, and item 50's restatement is where it says " +
+                    "so: keep FAIL-FAST (this shape) or AGGREGATE (run every channel, throw an " +
+                    "AggregateException at the end). Fail-fast is what the engine gets today by accident; under " +
+                    "it a throwing AudioSystem.OnAudioSourceRemoved silently cancels the LDtk sweep, and " +
+                    "vice-versa, at every screen change.");
     }
 
     // ------------------------------------------------------------------------------------ helpers

@@ -239,10 +239,13 @@ internal static class Program
         MeasureWorldDisposeEventSilence();
         MeasureTeardownPoolOrderDeterminant();
         MeasureTeardownWorldComponentOrder();
+        MeasureSharedTypeAcrossLegs();
         MeasureWorldDisposeReentrantHandler();
         MeasureCreationDuringWorldDispose();
         MeasureComponentAddedDuringWorldDispose();
         MeasureWorldDisposeInsideHandler();
+        MeasureWorldDisposeInsideEntityDispose();
+        MeasureThrowingTeardownHandler();
         MeasureEntitySetAfterWorldDispose();
     }
 
@@ -474,6 +477,118 @@ internal static class Program
             contact.Count > 0 && contact[0].StartsWith("WorldMarkerD", StringComparison.Ordinal)
                 ? "FIRST CONTACT of any kind — the facade's WorldChannel<T> rule matches"
                 : "SUBSCRIPTION order strictly (a pre-subscription Set does not mint)");
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // M4d — ONE component type subscribed on BOTH legs: is the teardown order kept by a single
+    // shared registry, or by two independent ones?
+    //
+    // M4b and M4c each measured one leg in isolation, where the two designs are indistinguishable.
+    // They come apart the moment a type is subscribed on both — which the engine does today
+    // (`CurrentLevelComponent` is a world singleton, and level-owned entities carry components the
+    // same systems subscribe to) — and they come apart LOUDLY on world D below: under one shared
+    // registry a type that took its id on the world leg keeps that id on the entity leg, so the
+    // entity leg can report it BEFORE a type subscribed earlier on that leg.
+    // ---------------------------------------------------------------------------------------
+    private static void MeasureSharedTypeAcrossLegs()
+    {
+        Section("M4d (item 50) — one type on BOTH legs: one shared type-id registry, or two?");
+
+        var log = new List<string>();
+        var world = new World();
+
+        // Subscription order: world Shared, world WorldMarkerF, entity Shared, entity EntityMarkerB.
+        world.SubscribeWorldComponentRemoved((World _, in SharedMarker v) => log.Add($"World(Shared {v.Value})"));
+        world.SubscribeWorldComponentRemoved((World _, in WorldMarkerF v) => log.Add($"World(F {v.Value})"));
+        world.SubscribeEntityComponentRemoved((in Entity _, in SharedMarker v) => log.Add($"Entity(Shared {v.Value})"));
+        world.SubscribeEntityComponentRemoved((in Entity _, in EntityMarkerB v) => log.Add($"Entity(B {v.Value})"));
+
+        var carrier = world.CreateEntity();
+        carrier.Set(new SharedMarker { Value = 1 });
+        carrier.Set(new EntityMarkerB { Value = 2 });
+        world.Set(new SharedMarker { Value = 3 });
+        world.Set(new WorldMarkerF { Value = 4 });
+
+        world.Dispose();
+        Report("world A: subscribe world Shared, world F, entity Shared, entity B", Render(log));
+
+        // The discriminating leg: the SHARED type takes its slot on the WORLD leg first, and only
+        // then is subscribed on the entity leg — after another entity type. A single shared registry
+        // reports Shared2 FIRST on the entity leg (it holds the older id); two independent registries
+        // report it SECOND (its own leg's subscription order).
+        var split = new List<string>();
+        var second = new World();
+        second.SubscribeWorldComponentRemoved((World _, in SharedMarker2 v) => split.Add($"World(Shared2 {v.Value})"));
+        second.SubscribeEntityComponentRemoved((in Entity _, in EntityMarkerC v) => split.Add($"Entity(C {v.Value})"));
+        second.SubscribeEntityComponentRemoved((in Entity _, in SharedMarker2 v) => split.Add($"Entity(Shared2 {v.Value})"));
+
+        var carrier2 = second.CreateEntity();
+        carrier2.Set(new EntityMarkerC { Value = 1 });
+        carrier2.Set(new SharedMarker2 { Value = 2 });
+        second.Set(new SharedMarker2 { Value = 3 });
+
+        second.Dispose();
+        Report("world B: subscribe world Shared2, entity C, entity Shared2", Render(split));
+
+        var entityLeg = new List<string>();
+        foreach (var line in split)
+        {
+            if (line.StartsWith("Entity(", StringComparison.Ordinal)) entityLeg.Add(line);
+        }
+
+        Report("=> the two legs are ordered by",
+            entityLeg.Count > 0 && entityLeg[0].StartsWith("Entity(C", StringComparison.Ordinal)
+                ? "each leg follows its OWN subscription order (NOT one shared type-id registry)"
+                : "ONE SHARED registry — the world-leg subscription claimed the entity leg's slot too");
+        Report("=> and the LEGS themselves are ordered by",
+            split.Count > 0 && split[0].StartsWith("World(", StringComparison.Ordinal)
+                ? "subscription order ACROSS legs — the world leg is NOT last by rule, it is last when it subscribed last"
+                : "entity leg first, world leg last, by rule");
+
+        // If the legs really are ordered by subscription across channel KINDS, then EntityDisposed —
+        // which M4 saw fire for every entity before any ComponentRemoved — is a channel like any
+        // other, and subscribing it LAST must move it. That is the decisive leg: it separates "the
+        // cascade has three phases" from "the cascade is one list of channels in subscription order".
+        var phases = new List<string>();
+        var third = new World();
+        third.SubscribeEntityComponentRemoved((in Entity _, in EntityMarkerD v) => phases.Add($"Removed(D {v.Value})"));
+        third.SubscribeWorldComponentRemoved((World _, in WorldMarkerG v) => phases.Add($"World(G {v.Value})"));
+        third.SubscribeEntityDisposed((in Entity _) => phases.Add("EntityDisposed"));
+
+        for (var i = 1; i <= 2; i++)
+        {
+            var carrier3 = third.CreateEntity();
+            carrier3.Set(new EntityMarkerD { Value = i });
+        }
+
+        third.Set(new WorldMarkerG { Value = 9 });
+        third.Dispose();
+
+        Report("world C: subscribe entity D, world G, EntityDisposed (in that order)", Render(phases));
+        Report("=> EntityDisposed is",
+            phases.Count > 0 && phases[0] == "EntityDisposed"
+                ? "a PHASE that always runs first, whenever it was subscribed"
+                : "a CHANNEL like the others — it runs in its own subscription slot");
+
+        // The same question one level down, on the per-ENTITY path: item 40 pins
+        // "EntityDisposed, then ComponentRemoved per component" — is that a phase order too, or is
+        // it the same channel list? `entity.Dispose` is the verb the LDtk sweep and every
+        // screen-teardown call reach first, so the facade's DisposeEntity has to match whichever.
+        var perEntity = new List<string>();
+        var fourth = new World();
+        fourth.SubscribeEntityComponentRemoved((in Entity _, in EntityMarkerD v) => perEntity.Add($"Removed(D {v.Value})"));
+        fourth.SubscribeEntityDisposed((in Entity _) => perEntity.Add("EntityDisposed"));
+
+        var single = fourth.CreateEntity();
+        single.Set(new EntityMarkerD { Value = 7 });
+        single.Dispose();
+        fourth.Dispose();
+
+        Report("world D: entity.Dispose with Removed subscribed BEFORE EntityDisposed", Render(perEntity));
+        Report("=> item 40's order is",
+            perEntity.Count > 0 && perEntity[0] == "EntityDisposed"
+                ? "a fixed phase order (EntityDisposed always first)"
+                : "the same subscription-order channel list as world.Dispose");
     }
 
     private static List<string> WorldComponentOrderOfOneWorld(bool bFirst)
@@ -797,6 +912,173 @@ internal static class Program
     }
 
     // ---------------------------------------------------------------------------------------
+    // M8 — the CROSSED re-entrancy: world.Dispose from inside a normal entity.Dispose.
+    //
+    // M7 covers world-inside-world. This is the direction the engine can reach without anyone
+    // planning it: an EntityDisposed handler decides the screen is over and disposes the world,
+    // while the entity disposal that called it is still mid-flight. What happens to the outer
+    // disposal after the world underneath it is gone is a facade obligation (S9 leg B), so the
+    // incumbent's answer is measured rather than guessed — including what the dead world does with
+    // a CreateEntity and a world.Set afterwards.
+    // ---------------------------------------------------------------------------------------
+    private static void MeasureWorldDisposeInsideEntityDispose()
+    {
+        Section("M8 (item 50 / item 67) — world.Dispose from inside a normal entity.Dispose");
+
+        var log = new List<string>();
+        var world = new World();
+        var nested = 0;
+
+        world.SubscribeEntityDisposed((in Entity e) =>
+        {
+            log.Add($"EntityDisposed({Identify(e)})");
+            nested++;
+            try
+            {
+                world.Dispose();
+            }
+            catch (Exception ex)
+            {
+                log.Add($"(nested world.Dispose THREW {ex.GetType().Name})");
+            }
+        });
+        world.SubscribeEntityComponentRemoved((in Entity _, in EntityMarker v) => log.Add($"Removed(Marker {v.Value})"));
+
+        var carriers = new List<Entity>();
+        for (var i = 1; i <= 2; i++)
+        {
+            var e = world.CreateEntity();
+            e.Set(new EntityMarker { Value = i });
+            carriers.Add(e);
+        }
+
+        try
+        {
+            carriers[0].Dispose();
+            Report("outer entity.Dispose", "returned normally");
+        }
+        catch (Exception ex)
+        {
+            Report("outer entity.Dispose THREW", ex.GetType().FullName + ": " + ex.Message);
+        }
+
+        Report("events", Render(log));
+        Report("nested world.Dispose calls made by the handler", nested);
+
+        // Reading a handle after this teardown is itself a measurement: DefaultEcs 0.18.0-beta01
+        // throws out of `Entity.IsAlive` here, the same shape M6 found for a post-teardown set.
+        try
+        {
+            Report("carriers still alive afterwards", (carriers[0].IsAlive ? 1 : 0) + (carriers[1].IsAlive ? 1 : 0));
+        }
+        catch (Exception ex)
+        {
+            Report("reading Entity.IsAlive after the crossed teardown THREW", ex.GetType().FullName + ": " + ex.Message);
+        }
+
+        // The post-teardown surface the resumed disposal would have touched.
+        try
+        {
+            var afterwards = world.CreateEntity();
+            Report("world.CreateEntity() after the crossed teardown", $"returned a handle, IsAlive={afterwards.IsAlive}");
+        }
+        catch (Exception ex)
+        {
+            Report("world.CreateEntity() after the crossed teardown THREW", ex.GetType().Name + ": " + ex.Message);
+        }
+
+        try
+        {
+            world.Set(new WorldMarker { Value = 123 });
+            Report("world.Set<T> after the crossed teardown", $"stored, Has<T>()={world.Has<WorldMarker>()}");
+        }
+        catch (Exception ex)
+        {
+            Report("world.Set<T> after the crossed teardown THREW", ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // M9 — a teardown handler that THROWS: how much of the cascade survives it?
+    //
+    // Three carriers, a handler that throws on the second, and every other reactive verb wired. The
+    // facade's answer (S11) is fail-fast with the teardown completed anyway; whether that is parity
+    // or a facade choice is only knowable by asking the incumbent the same question.
+    // ---------------------------------------------------------------------------------------
+    private static void MeasureThrowingTeardownHandler()
+    {
+        Section("M9 (item 50) — a handler that THROWS during world.Dispose");
+
+        var log = new List<string>();
+        var world = new World();
+        var carriers = new List<Entity>();
+
+        world.SubscribeEntityDisposed((in Entity e) =>
+        {
+            log.Add($"EntityDisposed({Identify(e)})");
+            if (e.IsAlive && e.Has<EntityMarker>() && e.Get<EntityMarker>().Value == 2)
+            {
+                throw new InvalidOperationException("teardown handler failed on carrier #2");
+            }
+        });
+        world.SubscribeEntityComponentRemoved((in Entity _, in EntityMarker v) => log.Add($"Removed(Marker {v.Value})"));
+        world.SubscribeWorldComponentRemoved((World _, in WorldMarker v) => log.Add($"WorldComponentRemoved({v.Value})"));
+
+        for (var i = 1; i <= 3; i++)
+        {
+            var e = world.CreateEntity();
+            e.Set(new EntityMarker { Value = i });
+            carriers.Add(e);
+        }
+
+        world.Set(new WorldMarker { Value = 99 });
+        var set = world.GetEntities().With<EntityMarker>().AsSet();
+
+        try
+        {
+            world.Dispose();
+            Report("world.Dispose", "returned normally — the throw did NOT escape");
+        }
+        catch (Exception ex)
+        {
+            Report("world.Dispose THREW (the handler's exception escapes)", ex.GetType().Name + ": " + ex.Message);
+        }
+
+        Report("events before/around the throw", Render(log));
+        Report("EntityDisposed total (3 carriers)", Count(log, "EntityDisposed"));
+        Report("ComponentRemoved total", Count(log, "Removed(Marker"));
+        Report("WorldComponentRemoved total", Count(log, "WorldComponentRemoved"));
+
+        var alive = 0;
+        foreach (var carrier in carriers)
+        {
+            if (carrier.IsAlive) alive++;
+        }
+
+        Report("carriers still alive after the failed teardown", alive);
+
+        var before = log.Count;
+        try
+        {
+            world.Dispose();
+            Report("a SECOND world.Dispose replays", log.Count - before + " more events");
+        }
+        catch (Exception ex)
+        {
+            Report("a SECOND world.Dispose THREW", ex.GetType().Name + ": " + ex.Message);
+        }
+
+        try
+        {
+            Report("set.Count after the failed teardown", set.Count);
+        }
+        catch (Exception ex)
+        {
+            Report("reading the set after the failed teardown THREW", ex.GetType().Name);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
     // M6 — what does a live EntitySet report AFTER world.Dispose?
     //
     // entity.Dispose drops the entity from every set synchronously (contract item 67, measured
@@ -918,7 +1200,49 @@ internal static class Program
         public int Value;
     }
 
+    /// <summary>M4d only — subscribed on the world leg AND the entity leg of the same world.</summary>
+    private struct SharedMarker
+    {
+        public int Value;
+    }
+
+    /// <summary>M4d's discriminating leg — world-leg subscription first, entity-leg subscription last.</summary>
+    private struct SharedMarker2
+    {
+        public int Value;
+    }
+
+    /// <summary>M4d only.</summary>
+    private struct WorldMarkerF
+    {
+        public int Value;
+    }
+
     private struct EntityMarker
+    {
+        public int Value;
+    }
+
+    /// <summary>M4d only.</summary>
+    private struct EntityMarkerB
+    {
+        public int Value;
+    }
+
+    /// <summary>M4d only.</summary>
+    private struct EntityMarkerC
+    {
+        public int Value;
+    }
+
+    /// <summary>M4d's phase-vs-channel leg only.</summary>
+    private struct EntityMarkerD
+    {
+        public int Value;
+    }
+
+    /// <summary>M4d's phase-vs-channel leg only.</summary>
+    private struct WorldMarkerG
     {
         public int Value;
     }

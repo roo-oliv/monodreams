@@ -36,6 +36,10 @@ namespace MonoDreams.ArchSpike.FacadeEventsProof;
 //   R3. The facade never holds a `ref`/span across a dispatch. Archetype moves relocate component
 //       storage; a ref captured before a handler ran points at the old chunk afterwards. Values are
 //       copied out (`old`) before dispatch and re-read after.
+//
+// A fourth rule governs teardown specifically, and it is measured rather than designed (M4d): the
+// disposal cascade is ONE list of subscribed channels, walked in the order this world's
+// subscriptions were made — not three phases. See `_channels`.
 // ===================================================================================================
 
 // ------------------------------------------------------------------ handler shapes (M2/M6 exact)
@@ -131,33 +135,46 @@ internal sealed class EcsWorld : IDisposable
     private readonly Dictionary<Type, WorldComponentChannel> _worldComponentChannels = new();
     private readonly Dictionary<Type, object> _singletons = new();
     private readonly Dictionary<Type, object> _messageChannels = new();
-    private readonly List<EntityDisposedHandler> _entityDisposedHandlers = new();
     private readonly List<EntityQuery> _queries = new();
     private readonly HashSet<int> _disposing = new();
 
     /// <summary>
-    /// Facade-owned component-type ids, minted in SUBSCRIPTION order — the moment a subscription
-    /// first creates the type's channel, and never on a <c>Set</c>/<c>Remove</c>/<c>NotifyChanged</c>
-    /// that precedes it (M4b world D measured DefaultEcs doing exactly that). Entity components and
-    /// world components share this registry, so both teardown legs sort by the same ids.
+    /// <b>The teardown order, and the only thing that defines it.</b> Every reactive channel — the
+    /// <c>EntityDisposed</c> channel, one per subscribed entity-component type, one per subscribed
+    /// world-component type — is appended here the moment a SUBSCRIPTION creates it, and both
+    /// disposal verbs walk this list in order.
     /// <para>
-    /// Every <c>ComponentRemoved</c> cascade dispatches in ascending id. The alternative is Arch's
-    /// archetype <c>Signature.Components</c> order, which is backend-defined — and S0 measured that
-    /// Arch's enumeration order is *reversed* relative to DefaultEcs, so inheriting it would make
-    /// the teardown sequence a claim about Arch's chunk layout instead of about the facade. It is
-    /// the same per-type registry D12's AOT registration needs.
+    /// That is not a facade invention, it is the measured DefaultEcs 0.18.0-beta01 determinant.
+    /// M4d asked the three questions M4's fixture could not distinguish, and all three answer the
+    /// same way: subscribing a world component BEFORE the entity ones makes the world leg fire
+    /// FIRST (so "world components last" was M4's subscription order, never a rule); subscribing
+    /// <c>EntityDisposed</c> LAST makes it fire last (so it is a channel, not a phase); and
+    /// <c>entity.Dispose</c> follows the same list (so item 40's "EntityDisposed then
+    /// ComponentRemoved" is that order too). One type subscribed on BOTH legs takes TWO slots —
+    /// each leg keeps its own subscription order (M4d worlds A and B).
+    /// </para>
+    /// <para>
+    /// The alternative for the entity-component half is Arch's archetype <c>Signature.Components</c>
+    /// order, which is backend-defined — and S0 measured Arch enumerating *reversed* relative to
+    /// DefaultEcs, so inheriting it would make the teardown sequence a claim about Arch's chunk
+    /// layout. For the world half the alternative is <c>Dictionary</c> enumeration: BCL insertion
+    /// order, chosen by nothing.
     /// </para>
     /// <para>
     /// <b>Deliberately PER-WORLD, and measured to be right.</b> The engine builds one world per
-    /// screen, so per-world and process-wide ids agree on the first screen and can diverge on the
-    /// second — M4b settles it by tearing down two worlds in one process with reversed orders:
-    /// DefaultEcs 0.18.0-beta01 follows <b>each world's own subscription order</b>. Its two further
-    /// legs pin the mint itself: subscribe Gamma→Delta while Setting Delta→Gamma still reports
-    /// Gamma first, and Setting Zeta before subscribing to anything still reports Epsilon first —
-    /// so the mint is the subscription, not the first touch.
+    /// screen, so per-world and process-wide ordering agree on the first screen and can diverge on
+    /// the second — M4b settles it by tearing down two worlds in one process with reversed orders:
+    /// DefaultEcs follows <b>each world's own subscription order</b>. Its two further legs pin the
+    /// mint itself: subscribe Gamma→Delta while Setting Delta→Gamma still reports Gamma first, and
+    /// Setting Zeta before subscribing to anything still reports Epsilon first — so the mint is the
+    /// subscription, not the first touch. Hence a channel is appended on CREATE, and creation
+    /// happens only in <see cref="Channel{T}"/>/<see cref="WorldChannel{T}"/> with
+    /// <c>create: true</c>, i.e. only from a Subscribe call.
     /// </para>
     /// </summary>
-    private readonly Dictionary<Type, int> _componentTypeIds = new();
+    private readonly List<TeardownChannel> _channels = new();
+
+    private EntityDisposedChannel _entityDisposedChannel;
 
     private bool _disposed;
 
@@ -185,9 +202,8 @@ internal sealed class EcsWorld : IDisposable
     {
         get
         {
-            var total = _entityDisposedHandlers.Count;
-            foreach (var channel in _componentChannels.Values) total += channel.HandlerCount;
-            foreach (var channel in _worldComponentChannels.Values) total += channel.HandlerCount;
+            var total = 0;
+            foreach (var channel in _channels) total += channel.HandlerCount;
             foreach (var channel in _messageChannels.Values) total += ((IMessageChannel)channel).HandlerCount;
             return total;
         }
@@ -197,6 +213,12 @@ internal sealed class EcsWorld : IDisposable
 
     public Entity CreateEntity()
     {
+        // A disposed world has no Arch world left to create in — before this guard it handed back a
+        // handle that read `IsAlive == false` and silently did nothing. Creating DURING teardown is
+        // a different case and stays legal: M5b measured DefaultEcs allowing it (the newborn fires
+        // its Added and is then freed with the world), and S8 leg C asserts that shape.
+        if (_disposed) throw new InvalidOperationException("CreateEntity on a disposed world.");
+
         var handle = _arch.Create();
         if (!_versionById.TryGetValue(handle.Id, out var version))
         {
@@ -220,10 +242,12 @@ internal sealed class EcsWorld : IDisposable
         && _arch.IsAlive(entity.Handle);
 
     /// <summary>
-    /// Item 40 + the measured DefaultEcs order: <c>EntityDisposed</c> first, then one
-    /// <c>ComponentRemoved</c> per present component, with the entity still reading
-    /// <c>IsAlive == true</c> inside the handlers. Values are read from the LIVE entity, before
-    /// Arch destroys it. Membership is gone by the time this returns (item 67).
+    /// Item 40, in the order M4d measured: this world's channels, in SUBSCRIPTION order — which is
+    /// <c>EntityDisposed</c> first and then one <c>ComponentRemoved</c> per present component only
+    /// when <c>EntityDisposed</c> was subscribed first (M4d world D subscribed it second and
+    /// DefaultEcs reported it second). The entity still reads <c>IsAlive == true</c> inside every
+    /// handler, and values are read from the LIVE entity before Arch destroys it. Membership is
+    /// gone by the time this returns (item 67).
     /// </summary>
     internal void DisposeEntity(in Entity entity)
     {
@@ -234,8 +258,23 @@ internal sealed class EcsWorld : IDisposable
 
         try
         {
-            foreach (var handler in _entityDisposedHandlers.ToArray()) handler(entity);
-            FireComponentRemovedForAll(entity);
+            foreach (var channel in _channels.ToArray())
+            {
+                // A handler may have disposed this entity (S8 leg B), or torn the WHOLE world down
+                // (S9 leg B — `world.Dispose` from inside an `EntityDisposed` handler): after
+                // either, there is nothing left of this entity to report and, in the second case,
+                // no Arch world left to ask, because teardown's `finally` sets `_disposed` and then
+                // destroys it. Everything below the loop would run against that destroyed world, so
+                // the check is the loop's own condition, not a courtesy.
+                //
+                // It keys on `_disposed`, NOT on `_tearingDown`: disposing entities from INSIDE a
+                // running teardown is the engine's own unload sweep, it is measured to double-fire
+                // (M5), and S8 leg A asserts that parity.
+                if (_disposed || !IsAlive(entity)) return;
+                channel.FireAtEntityDispose(this, entity);
+            }
+
+            if (_disposed || !IsAlive(entity)) return;
 
             _versionById[entity.Handle.Id] = entity.Version + 1;
             _arch.Destroy(entity.Handle);
@@ -246,103 +285,6 @@ internal sealed class EcsWorld : IDisposable
             _disposing.Remove(entity.Handle.Id);
         }
     }
-
-    private void FireComponentRemovedForAll(in Entity entity)
-    {
-        // A handler earlier in the cascade may already have disposed this entity (measured: on the
-        // world-teardown leg DefaultEcs lets the engine's own sweep do exactly that), and
-        // `GetArchetype` on a destroyed handle is undefined — so liveness is checked, not assumed.
-        if (_componentChannels.Count == 0 || !IsAlive(entity)) return;
-
-        foreach (var componentType in SubscribedComponentTypes(entity))
-        {
-            if (!IsAlive(entity)) return;
-
-            if (_componentChannels.TryGetValue(componentType.Type, out var channel)
-                && _arch.Has(entity.Handle, componentType))
-            {
-                channel.FireRemovedFromLive(this, entity);
-            }
-        }
-    }
-
-    /// <summary>
-    /// The teardown cascade's <c>ComponentRemoved</c> half, <b>pool-grouped</b>: one component TYPE
-    /// at a time across every live carrier, rather than one entity at a time across its components.
-    /// <para>
-    /// That is what DefaultEcs 0.18.0-beta01 was measured to do (M4). The fixture that distinguishes
-    /// the two shapes is a carrier holding TWO subscribed component types interleaved between
-    /// single-component carriers: pool-grouped reports the second type last, after every other
-    /// carrier's first type; per-entity would report it in the middle. Pools run in ascending facade
-    /// component-type id, carriers in ascending entity id — both facade-imposed.
-    /// </para>
-    /// <para>
-    /// The pool list comes from the CHANNEL table and each carrier's membership is re-read at
-    /// dispatch time, never snapshotted before the cascade: M5c measured DefaultEcs reporting a
-    /// component a handler <c>Set</c>s mid-cascade on a carrier the walk has not reached yet, so a
-    /// pre-cascade snapshot would silently drop it. R3 still holds — the signature span is read and
-    /// released inside <see cref="HasSubscribedComponent"/>, never carried across a dispatch.
-    /// </para>
-    /// </summary>
-    private void FireComponentRemovedPoolGrouped(Entity[] live)
-    {
-        if (_componentChannels.Count == 0 || live.Length == 0) return;
-
-        var pools = new List<Type>(_componentChannels.Keys);
-        pools.Sort((left, right) => ComponentTypeOrder(left).CompareTo(ComponentTypeOrder(right)));
-
-        foreach (var componentType in pools)
-        {
-            if (!_componentChannels.TryGetValue(componentType, out var channel)) continue;
-
-            for (var i = 0; i < live.Length; i++)
-            {
-                // A handler earlier in the cascade may already have disposed this carrier, or may
-                // have added/removed the very component this pool is walking.
-                if (!HasSubscribedComponent(live[i], componentType)) continue;
-                channel.FireRemovedFromLive(this, live[i]);
-            }
-        }
-    }
-
-    /// <summary>Live presence test for one component type on one entity, span released before returning.</summary>
-    private bool HasSubscribedComponent(in Entity entity, Type componentType)
-    {
-        if (!IsAlive(entity)) return false;
-
-        var components = _arch.GetArchetype(entity.Handle).Signature.Components;
-        for (var i = 0; i < components.Length; i++)
-        {
-            if (components[i].Type == componentType) return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// The entity's present component types that something is actually subscribed to, in ascending
-    /// facade component-type id — never in Arch's archetype signature order.
-    /// </summary>
-    private List<ComponentType> SubscribedComponentTypes(in Entity entity)
-    {
-        var types = new List<ComponentType>();
-        if (!IsAlive(entity)) return types;
-
-        var components = _arch.GetArchetype(entity.Handle).Signature.Components;
-        var runtimeTypes = new ComponentType[components.Length];
-        components.CopyTo(runtimeTypes);
-
-        foreach (var componentType in runtimeTypes)
-        {
-            if (_componentChannels.ContainsKey(componentType.Type)) types.Add(componentType);
-        }
-
-        types.Sort((left, right) => ComponentTypeOrder(left.Type).CompareTo(ComponentTypeOrder(right.Type)));
-        return types;
-    }
-
-    /// <summary>Registration order, or last if the facade has never seen the type (it then has no channel).</summary>
-    private int ComponentTypeOrder(Type type) => _componentTypeIds.TryGetValue(type, out var id) ? id : int.MaxValue;
 
     /// <summary>
     /// The UNFILTERED enumeration surface (item 43): <c>world.GetEntities()</c> with no filter. It
@@ -439,6 +381,11 @@ internal sealed class EcsWorld : IDisposable
     /// </summary>
     public void Set<T>(in T value)
     {
+        // Teardown clears the singleton table last, so a Set after it would store a value nothing
+        // can ever remove and leave `Has<T>() == true` on a dead world (S9 leg B asserts the throw).
+        // Setting DURING teardown stays legal for the same reason creating does.
+        if (_disposed) throw new InvalidOperationException($"Set<{typeof(T).Name}> on a disposed world.");
+
         if (_singletons.TryGetValue(typeof(T), out var existing))
         {
             var box = (Box<T>)existing;
@@ -497,10 +444,22 @@ internal sealed class EcsWorld : IDisposable
         return new Subscription(() => channel.Removed.Remove(handler));
     }
 
+    /// <summary>
+    /// <c>EntityDisposed</c> is a CHANNEL, not a phase: it takes its slot in <see cref="_channels"/>
+    /// when it is first subscribed, and the cascade reaches it there. M4d world C subscribed it
+    /// third and DefaultEcs reported it third, after both component channels.
+    /// </summary>
     public IDisposable SubscribeEntityDisposed(EntityDisposedHandler handler)
     {
-        _entityDisposedHandlers.Add(handler);
-        return new Subscription(() => _entityDisposedHandlers.Remove(handler));
+        if (_entityDisposedChannel == null)
+        {
+            _entityDisposedChannel = new EntityDisposedChannel();
+            _channels.Add(_entityDisposedChannel);
+        }
+
+        var channel = _entityDisposedChannel;
+        channel.Handlers.Add(handler);
+        return new Subscription(() => channel.Handlers.Remove(handler));
     }
 
     public IDisposable SubscribeWorldComponentAdded<T>(WorldComponentAddedHandler<T> handler)
@@ -573,28 +532,33 @@ internal sealed class EcsWorld : IDisposable
 
     /// <summary>
     /// ⚠ Reproduces the MEASURED DefaultEcs 0.18.0-beta01 teardown, which contract item 50 gets
-    /// wrong: <c>world.Dispose</c> is NOT event-silent. Measured shape (M4) —
+    /// wrong: <c>world.Dispose</c> is NOT event-silent. The cascade walks <see cref="_channels"/> —
+    /// this world's subscriptions, in the order they were made — and each channel contributes:
     /// <list type="number">
-    /// <item><c>EntityDisposed</c> for every live entity, in ascending ENTITY-ID order (M4 recycles
-    /// an id so creation order and id order diverge; the measured sequence follows the id);</item>
-    /// <item><c>ComponentRemoved</c> <b>pool-grouped</b> — one component type across every carrier,
-    /// not one entity across its components;</item>
-    /// <item>world components last, among themselves in ascending facade component-type id (M4c
-    /// measured DefaultEcs following each world's own subscription order here too — a raw
-    /// <c>Dictionary</c> walk would have been BCL insertion order by accident, not by design).</item>
+    /// <item>the <c>EntityDisposed</c> channel fires for every live entity, in ascending ENTITY-ID
+    /// order (M4 recycles an id so creation order and id order diverge; the measured sequence
+    /// follows the id);</item>
+    /// <item>an entity-component channel fires <c>ComponentRemoved</c> across every live carrier —
+    /// <b>pool-grouped</b>, one type at a time, not one entity across its components;</item>
+    /// <item>a world-component channel fires its single <c>Removed</c>.</item>
     /// </list>
-    /// <b>The three orders above hold only while no handler mutates during the cascade.</b> A
-    /// handler that disposes entities re-enters <see cref="DisposeEntity"/>, whose per-entity shape
-    /// is <c>EntityDisposed</c>-then-its-own-components — so a sweeping handler collapses
-    /// pool-grouping to per-entity for whatever it takes, and can fire <c>ComponentRemoved</c> after
-    /// <c>WorldComponentRemoved</c>. S8 asserts that shape; S7 asserts the inert-handler one.
+    /// M4's log — EntityDisposed ×4, then the pools, then the world component — is exactly M4's
+    /// SUBSCRIPTION order, and M4d proves that is the determinant rather than a phase structure:
+    /// subscribing the world component first makes it fire first, and subscribing
+    /// <c>EntityDisposed</c> last makes it fire last.
+    /// <b>The order holds only while no handler mutates during the cascade.</b> A handler that
+    /// disposes entities re-enters <see cref="DisposeEntity"/>, which walks the same channel list
+    /// for ONE entity — so a sweeping handler collapses pool-grouping to per-entity for whatever it
+    /// takes, and can fire <c>ComponentRemoved</c> after <c>WorldComponentRemoved</c>. S8 asserts
+    /// that shape; S7 asserts the inert-handler one.
     /// <para>
     /// The dispatch runs inside a <c>try</c>: a handler that throws must not leave a world with
     /// <c>_disposed == false</c>, live versions and a live Arch world behind, because the next
     /// <c>Dispose</c> would then replay the whole cascade and double-fire every handler that already
-    /// ran. It is the same discipline <see cref="DisposeEntity"/> applies. The <c>try</c> alone does
-    /// NOT bound re-entry — a handler calling <c>Dispose</c> from inside the cascade reaches the
-    /// guard before the <c>finally</c> has run — which is what <see cref="_tearingDown"/> is for.
+    /// ran. It is the same discipline <see cref="DisposeEntity"/> applies — and the rest of the
+    /// cascade is DROPPED, which S11 measures rather than assumes. The <c>try</c> alone does NOT
+    /// bound re-entry — a handler calling <c>Dispose</c> from inside the cascade reaches the guard
+    /// before the <c>finally</c> has run — which is what <see cref="_tearingDown"/> is for.
     /// </para>
     /// <para>
     /// A handler is deliberately NOT stopped from disposing entities mid-cascade: DefaultEcs was
@@ -617,28 +581,18 @@ internal sealed class EcsWorld : IDisposable
 
         _tearingDown = true;
 
-        // Ascending entity id: GetAllEntities imposes it (Arch's own order is reversed — S0).
-        var live = GetAllEntities();
+        // Declared out here, taken INSIDE the try: `GetAllEntities` walks Arch's chunks and
+        // allocates, so it can throw — and once `_tearingDown` is set, a throw that skipped the
+        // finally would wedge the world forever (every later Dispose returns at the guard above,
+        // with the Arch world never destroyed and the subscriptions never cleared).
+        var live = Array.Empty<Entity>();
 
         try
         {
-            foreach (var entity in live)
-            {
-                if (!IsAlive(entity)) continue;   // already taken by an earlier handler's sweep
-                foreach (var handler in _entityDisposedHandlers.ToArray()) handler(entity);
-            }
+            // Ascending entity id: GetAllEntities imposes it (Arch's own order is reversed — S0).
+            live = GetAllEntities();
 
-            FireComponentRemovedPoolGrouped(live);
-
-            // Ascending facade component-type id — the FOURTH imposed order. Walking
-            // `_worldComponentChannels.Values` directly would have been BCL Dictionary enumeration
-            // order: stable in practice, defined by nothing, and minted by no facade decision.
-            var worldTypes = new List<Type>(_worldComponentChannels.Keys);
-            worldTypes.Sort((left, right) => ComponentTypeOrder(left).CompareTo(ComponentTypeOrder(right)));
-            foreach (var worldType in worldTypes)
-            {
-                if (_worldComponentChannels.TryGetValue(worldType, out var channel)) channel.FireRemovedIfPresent(this);
-            }
+            foreach (var channel in _channels.ToArray()) channel.FireAtWorldTeardown(this, live);
         }
         finally
         {
@@ -665,7 +619,8 @@ internal sealed class EcsWorld : IDisposable
             _componentChannels.Clear();
             _worldComponentChannels.Clear();
             _messageChannels.Clear();
-            _entityDisposedHandlers.Clear();
+            _channels.Clear();
+            _entityDisposedChannel = null;
 
             ArchWorld.Destroy(_arch);
         }
@@ -683,16 +638,15 @@ internal sealed class EcsWorld : IDisposable
         if (_componentChannels.TryGetValue(typeof(T), out var existing)) return (ComponentChannel<T>)existing;
         if (!create) return null;
 
-        // The facade's own type id is minted HERE — when a SUBSCRIPTION first creates the channel
-        // — and deliberately not on a Set/Remove/NotifyChanged that happened earlier. Measured
-        // (M4b world D: Set Zeta, then subscribe Epsilon→Zeta): DefaultEcs orders its teardown
-        // pools by subscription order strictly, and a component Set before anything subscribed to
-        // it does NOT claim the earlier slot. Minting on first contact of any kind would have
-        // silently reordered that world's cascade.
-        _componentTypeIds[typeof(T)] = _componentTypeIds.Count;
-
+        // The channel's teardown slot is taken HERE — when a SUBSCRIPTION first creates it — and
+        // deliberately not on a Set/Remove/NotifyChanged that happened earlier. Measured (M4b
+        // world D: Set Zeta, then subscribe Epsilon→Zeta): DefaultEcs orders its teardown pools by
+        // subscription order strictly, and a component Set before anything subscribed to it does
+        // NOT claim the earlier slot. Minting on first contact of any kind would have silently
+        // reordered that world's cascade.
         var channel = new ComponentChannel<T>();
         _componentChannels[typeof(T)] = channel;
+        _channels.Add(channel);
         return channel;
     }
 
@@ -701,13 +655,13 @@ internal sealed class EcsWorld : IDisposable
         if (_worldComponentChannels.TryGetValue(typeof(T), out var existing)) return (WorldComponentChannel<T>)existing;
         if (!create) return null;
 
-        // Same registry, same rule, same measurement (M4c world C, the world-component mirror of
-        // M4b world D). Before this existed the teardown's world-component leg had no facade order
-        // to sort by at all and fell back to Dictionary enumeration.
-        _componentTypeIds[typeof(T)] = _componentTypeIds.Count;
-
+        // Same list, same rule, same measurement (M4c world C, the world-component mirror of M4b
+        // world D) — and a SEPARATE slot from the entity channel of the same type, because M4d
+        // measured each leg keeping its own subscription order. Before this existed the teardown's
+        // world-component leg had no facade order at all and fell back to Dictionary enumeration.
         var channel = new WorldComponentChannel<T>();
         _worldComponentChannels[typeof(T)] = channel;
+        _channels.Add(channel);
         return channel;
     }
 
@@ -739,15 +693,53 @@ internal sealed class EcsWorld : IDisposable
     }
 
     /// <summary>
-    /// Type-erased handle on a typed handler list. The generic instantiation is created where
-    /// <c>T</c> is statically known (Subscribe/Set), so runtime dispatch — the <c>Dispose</c> cascade,
-    /// which only knows <see cref="Type"/> — needs no <c>MakeGenericMethod</c> and stays AOT-safe (D12).
+    /// One subscribed channel, and one slot in the teardown order. Type-erased on purpose: the
+    /// generic instantiation is created where <c>T</c> is statically known (Subscribe/Set), so the
+    /// cascade — which walks a list of these and knows no <c>T</c> — needs no
+    /// <c>MakeGenericMethod</c> and stays AOT-safe (D12).
     /// </summary>
-    private abstract class ComponentChannel
+    private abstract class TeardownChannel
     {
         public abstract int HandlerCount { get; }
 
-        public abstract void FireRemovedFromLive(EcsWorld world, in Entity entity);
+        /// <summary>This channel's whole contribution to <c>world.Dispose</c>, over the live snapshot.</summary>
+        public abstract void FireAtWorldTeardown(EcsWorld world, Entity[] live);
+
+        /// <summary>This channel's contribution to ONE <c>entity.Dispose</c> (world channels: none).</summary>
+        public abstract void FireAtEntityDispose(EcsWorld world, in Entity entity);
+    }
+
+    /// <summary>
+    /// The <c>EntityDisposed</c> channel. It is a channel and not a phase: M4d world C subscribed it
+    /// after both component channels and DefaultEcs reported it after both.
+    /// </summary>
+    private sealed class EntityDisposedChannel : TeardownChannel
+    {
+        public readonly List<EntityDisposedHandler> Handlers = new();
+
+        public override int HandlerCount => Handlers.Count;
+
+        public override void FireAtWorldTeardown(EcsWorld world, Entity[] live)
+        {
+            if (Handlers.Count == 0) return;
+
+            foreach (var entity in live)
+            {
+                // Already taken by an earlier handler's sweep, or the world is gone under us.
+                if (!world.IsAlive(entity)) continue;
+                foreach (var handler in Handlers.ToArray()) handler(entity);
+            }
+        }
+
+        public override void FireAtEntityDispose(EcsWorld world, in Entity entity)
+        {
+            if (Handlers.Count == 0) return;
+            foreach (var handler in Handlers.ToArray()) handler(entity);
+        }
+    }
+
+    private abstract class ComponentChannel : TeardownChannel
+    {
     }
 
     private sealed class ComponentChannel<T> : ComponentChannel
@@ -778,19 +770,46 @@ internal sealed class EcsWorld : IDisposable
             foreach (var handler in Removed.ToArray()) handler(entity, value);
         }
 
-        public override void FireRemovedFromLive(EcsWorld world, in Entity entity)
+        /// <summary>
+        /// <b>Pool-grouped</b>: this one component type across every live carrier, in ascending
+        /// entity id — not one entity across its components. That is what DefaultEcs 0.18.0-beta01
+        /// was measured to do (M4); the fixture that distinguishes the two shapes is a carrier
+        /// holding TWO subscribed types interleaved between single-component carriers, and S7 uses
+        /// exactly it.
+        /// <para>
+        /// Membership is re-read per carrier at DISPATCH time, never snapshotted before the
+        /// cascade: M5c measured DefaultEcs reporting a component a handler <c>Set</c>s mid-cascade
+        /// on a carrier the walk has not reached yet. <c>world.Has&lt;T&gt;</c> also re-checks
+        /// liveness, because an earlier handler may already have disposed this carrier and reading
+        /// a destroyed archetype is undefined. R3 holds: no span or ref crosses a dispatch.
+        /// </para>
+        /// </summary>
+        public override void FireAtWorldTeardown(EcsWorld world, Entity[] live)
         {
             if (Removed.Count == 0) return;
+
+            for (var i = 0; i < live.Length; i++)
+            {
+                if (!world.Has<T>(live[i])) continue;
+                FireRemovedFromLive(world, live[i]);
+            }
+        }
+
+        public override void FireAtEntityDispose(EcsWorld world, in Entity entity)
+        {
+            if (Removed.Count == 0 || !world.Has<T>(entity)) return;
+            FireRemovedFromLive(world, entity);
+        }
+
+        private void FireRemovedFromLive(EcsWorld world, in Entity entity)
+        {
             var value = world.Get<T>(entity);   // read while the entity is still alive (item 40)
             FireRemoved(entity, value);
         }
     }
 
-    private abstract class WorldComponentChannel
+    private abstract class WorldComponentChannel : TeardownChannel
     {
-        public abstract int HandlerCount { get; }
-
-        public abstract void FireRemovedIfPresent(EcsWorld world);
     }
 
     private sealed class WorldComponentChannel<T> : WorldComponentChannel
@@ -819,10 +838,16 @@ internal sealed class EcsWorld : IDisposable
             foreach (var handler in Removed.ToArray()) handler(world, value);
         }
 
-        public override void FireRemovedIfPresent(EcsWorld world)
+        /// <summary>One world component, once — and only at world teardown.</summary>
+        public override void FireAtWorldTeardown(EcsWorld world, Entity[] live)
         {
             if (Removed.Count == 0 || !world.Has<T>()) return;
             FireRemoved(world, world.Get<T>());
+        }
+
+        /// <summary>A single entity's disposal removes no world component.</summary>
+        public override void FireAtEntityDispose(EcsWorld world, in Entity entity)
+        {
         }
     }
 
