@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Arch.Core;
@@ -71,9 +72,16 @@ internal static class ArchExercise
         Report("ComponentRegistry.Size before any World", ComponentRegistry.Size);
         Report("ComponentRegistry.Has<Payload>() (managed)", ComponentRegistry.Has<Payload>());
 
-        var world = World.Create();
+        // `World.Create()` is INSIDE the reporting try. A target that cannot build a world at all is
+        // exactly the failure this exercise exists to catch (the AOT negative control dies one line
+        // later, in the first `world.Create`), and a throw out here would take every check line
+        // already printed with it — on the WASM head, where the report IS the page, that means a
+        // blank proof rather than a failing one.
+        World world = null;
         try
         {
+            world = World.Create();
+
             // ----------------------------------------------------------------------- creation
             Section("creation");
 
@@ -247,6 +255,58 @@ internal static class ArchExercise
             World.Destroy(reborn);
             Check("World.WorldSize back to baseline again", World.WorldSize, worldSizeBaseline);
 
+            // ...but "back to baseline" is a claim about `World.Worlds`/`World.WorldSize` ONLY, and
+            // A7's "World.Destroy per live world, nothing more" is only checkable if the set of
+            // process-wide statics is ENUMERATED rather than guessed. Arch holds a THIRD one:
+            // `World.Destroy` does not free an id, it ENQUEUES it, and `World.Create` dequeues. So
+            // the id the next world gets is decided by the order earlier worlds were destroyed in —
+            // state that outlives every world, that no API drains, and that a test-order shuffle
+            // therefore permutes. Two worlds freed in a chosen order, then two created, says which:
+            //   freed-order (FIFO) => secondId, firstId | reverse-order (LIFO) => firstId, secondId
+            //   lowest-free-id     => firstId, secondId (indistinguishable from LIFO on one id, so
+            //                                            the PAIR is what is asserted)
+            var firstFree = World.Create();
+            var secondFree = World.Create();
+            var firstFreeId = firstFree.Id;
+            var secondFreeId = secondFree.Id;
+            World.Destroy(secondFree);   // freed FIRST, and it holds the HIGHER id
+            World.Destroy(firstFree);
+            var nextWorld = World.Create();
+            var worldAfterNext = World.Create();
+            Check("world ids come back in the order they were FREED, not lowest-free-first",
+                $"{nextWorld.Id},{worldAfterNext.Id}", $"{secondFreeId},{firstFreeId}");
+            World.Destroy(worldAfterNext);
+            World.Destroy(nextWorld);
+            Report("=> the recycled-id queue is process-lifetime", "World.Destroy enqueues, World.Create dequeues; nothing drains it");
+
+            // And the enumeration itself, so "nothing more" stops being an assumption. Reflection
+            // over another assembly's statics is exactly what a trimmed/AOT image may not answer, so
+            // this is REPORTED per target rather than checked: a leg that cannot see the fields says
+            // so instead of failing, and the two legs stay free to differ here.
+            try
+            {
+                var statics = typeof(World).GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                Report("static fields on Arch's World (reflected)", statics.Length);
+                foreach (var field in statics)
+                {
+                    object value;
+                    try
+                    {
+                        value = field.GetValue(null);
+                    }
+                    catch (Exception ex)
+                    {
+                        value = "<unreadable: " + ex.GetType().Name + ">";
+                    }
+
+                    Report("   World." + field.Name, value == null ? "null" : value.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                Report("static-field enumeration of World", "unavailable on this target: " + ex.GetType().Name);
+            }
+
             // The other half, and the one C12 gets wrong: the component-type registry is NOT
             // world-scoped. It survives every Destroy, which is what makes the world above usable
             // at all — and it is why "reset the component statics to baseline" cannot be a hook.
@@ -257,8 +317,16 @@ internal static class ArchExercise
             // BROKEN. `Doomed` exists solely for this probe — it is left in a half-cleared state
             // afterwards, so nothing else may ever touch it.
             var doomedWorld = World.Create();
+
+            // Reported, not checked, and the two legs deliberately DIFFER here: `Doomed` is
+            // `[Component]`-annotated, so on a generator leg the ModuleInitializer registered it
+            // before Main ran and this reads true before anything used it. Only the negative control
+            // (lazy registration) reads false. The check below is therefore about the state AFTER
+            // first use — the precondition the clear probe needs — and is true on every leg.
+            Report("ComponentRegistry.Has<Doomed>() BEFORE first use (generator legs are pre-primed)",
+                ComponentRegistry.Has<Doomed>());
             doomedWorld.Create(new Doomed { N = 1 });
-            Check("ComponentRegistry.Has<Doomed>() after first use", ComponentRegistry.Has<Doomed>(), true);
+            Check("ComponentRegistry.Has<Doomed>() once the type HAS been used", ComponentRegistry.Has<Doomed>(), true);
             World.Destroy(doomedWorld);
 
             var clearThrew = false;
@@ -307,7 +375,19 @@ internal static class ArchExercise
         }
         finally
         {
-            World.Destroy(world);
+            // Teardown carries its own envelope for the same reason: an unhandled throw from
+            // `World.Destroy` would discard the whole report, and "the world would not tear down"
+            // is a RESULT this proof should print, not a crash it should die of.
+            try
+            {
+                if (world != null) World.Destroy(world);
+            }
+            catch (Exception ex)
+            {
+                failures++;
+                report.AppendLine();
+                report.AppendLine("   [FAIL] World.Destroy(world) threw: " + ex.GetType().FullName + ": " + ex.Message);
+            }
         }
 
         report.AppendLine();

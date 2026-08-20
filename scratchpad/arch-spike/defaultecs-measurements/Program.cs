@@ -237,7 +237,12 @@ internal static class Program
         }
 
         MeasureWorldDisposeEventSilence();
+        MeasureTeardownPoolOrderDeterminant();
+        MeasureTeardownWorldComponentOrder();
         MeasureWorldDisposeReentrantHandler();
+        MeasureCreationDuringWorldDispose();
+        MeasureComponentAddedDuringWorldDispose();
+        MeasureWorldDisposeInsideHandler();
         MeasureEntitySetAfterWorldDispose();
     }
 
@@ -315,6 +320,192 @@ internal static class Program
     }
 
     // ---------------------------------------------------------------------------------------
+    // M4b — WHAT determines the ComponentRemoved pool order?
+    //
+    // M4 measured THAT the cascade is pool-grouped, but not what orders the pools. Its own
+    // fixture cannot tell: the subscription order, the component-Set order and the process-wide
+    // first-touch order all coincide there. That ambiguity is not academic — the engine builds
+    // ONE World per screen (LevelSelectionScreen.cs:128, SplashScreen.cs:59), so a facade that
+    // mints per-WORLD type ids and an incumbent that mints them process-wide agree on the first
+    // screen and diverge on the second.
+    //
+    // Two worlds in the same process, the SECOND one subscribing (and Setting) in the REVERSED
+    // order. Same order in both logs => process-wide; flipped => per-world. PoolAlpha/PoolBeta
+    // are touched by nothing else in this harness, so world A really is their first touch.
+    // ---------------------------------------------------------------------------------------
+    private static void MeasureTeardownPoolOrderDeterminant()
+    {
+        Section("M4b (item 50) — is the teardown pool order per-WORLD or process-wide first touch?");
+
+        var first = PoolOrderOfOneWorld(alphaFirst: true);
+        Report("world A: subscribe+Set PoolAlpha then PoolBeta (first touch of both)", Render(first));
+
+        var second = PoolOrderOfOneWorld(alphaFirst: false);
+        Report("world B: subscribe+Set PoolBeta then PoolAlpha (REVERSED, fresh world)", Render(second));
+
+        var sameOrder = first.Count == second.Count && first.Count > 0 && first[0] == second[0];
+        Report("=> pool order determinant",
+            sameOrder
+                ? "PROCESS-WIDE first touch — world B ignored its own subscription/Set order"
+                : "PER-WORLD — world B followed its own subscription/Set order");
+
+        // The flip above moves subscription order and Set order TOGETHER, so it settles
+        // per-world vs process-wide but not WHICH per-world event mints the order. World C
+        // splits them: subscribe Gamma-then-Delta, Set Delta-then-Gamma. The facade mints its
+        // type id on the FIRST facade contact of any kind (a subscription counts), so this leg
+        // is what says whether that rule matches.
+        var split = new List<string>();
+        var third = new World();
+        third.SubscribeEntityComponentRemoved((in Entity _, in PoolGamma v) => split.Add($"PoolGamma({v.Value})"));
+        third.SubscribeEntityComponentRemoved((in Entity _, in PoolDelta v) => split.Add($"PoolDelta({v.Value})"));
+        for (var i = 1; i <= 2; i++)
+        {
+            var carrier = third.CreateEntity();
+            carrier.Set(new PoolDelta { Value = i });     // Set order is the REVERSE of subscribe order
+            carrier.Set(new PoolGamma { Value = i });
+        }
+
+        third.Dispose();
+        Report("world C: subscribe Gamma→Delta but Set Delta→Gamma", Render(split));
+        Report("=> which per-world event mints the order",
+            split.Count > 0 && split[0].StartsWith("PoolGamma", StringComparison.Ordinal)
+                ? "SUBSCRIPTION order (subscribing before Setting wins)"
+                : "component Set order (first use on an entity)");
+
+        // World C had subscription happen FIRST for both types, so "subscription wins" and "the
+        // earlier contact of ANY kind wins" are still the same answer there. World D puts a Set
+        // BEFORE any subscription: if Zeta still reports first, the rule is first-contact — which
+        // is what the facade's `Channel<T>` mints on.
+        var contact = new List<string>();
+        var fourth = new World();
+        var early = fourth.CreateEntity();
+        early.Set(new PoolZeta { Value = 1 });        // FIRST contact with Zeta: a Set
+        fourth.SubscribeEntityComponentRemoved((in Entity _, in PoolEpsilon v) => contact.Add($"PoolEpsilon({v.Value})"));
+        fourth.SubscribeEntityComponentRemoved((in Entity _, in PoolZeta v) => contact.Add($"PoolZeta({v.Value})"));
+        early.Set(new PoolEpsilon { Value = 1 });
+        fourth.Dispose();
+
+        Report("world D: Set Zeta, then subscribe Epsilon→Zeta, then Set Epsilon", Render(contact));
+        Report("=> the mint is",
+            contact.Count > 0 && contact[0].StartsWith("PoolZeta", StringComparison.Ordinal)
+                ? "FIRST CONTACT of any kind (Set or Subscribe) — the facade's Channel<T> rule matches"
+                : "SUBSCRIPTION order strictly (a pre-subscription Set does not mint)");
+    }
+
+    /// <summary>One world's teardown pool order. Subscription order AND component-Set order are
+    /// flipped together, so a "per-world" answer stays per-world whichever of the two DefaultEcs
+    /// actually keys on — the question here is per-world vs process-wide, not which per-world one.</summary>
+    private static List<string> PoolOrderOfOneWorld(bool alphaFirst)
+    {
+        var log = new List<string>();
+        var world = new World();
+
+        void SubscribeAlpha() =>
+            world.SubscribeEntityComponentRemoved((in Entity _, in PoolAlpha v) => log.Add($"PoolAlpha({v.Value})"));
+        void SubscribeBeta() =>
+            world.SubscribeEntityComponentRemoved((in Entity _, in PoolBeta v) => log.Add($"PoolBeta({v.Value})"));
+
+        if (alphaFirst)
+        {
+            SubscribeAlpha();
+            SubscribeBeta();
+        }
+        else
+        {
+            SubscribeBeta();
+            SubscribeAlpha();
+        }
+
+        // Two carriers, so a pool-grouped log is visibly grouped rather than a coincidence of one.
+        for (var i = 1; i <= 2; i++)
+        {
+            var carrier = world.CreateEntity();
+            if (alphaFirst)
+            {
+                carrier.Set(new PoolAlpha { Value = i });
+                carrier.Set(new PoolBeta { Value = i });
+            }
+            else
+            {
+                carrier.Set(new PoolBeta { Value = i });
+                carrier.Set(new PoolAlpha { Value = i });
+            }
+        }
+
+        world.Dispose();
+        return log;
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // M4c — the order BETWEEN world components at teardown.
+    //
+    // M4 subscribes exactly ONE world component, so "world components last" is measured but the
+    // order among several of them is not. The engine holds four (LDtkLevelDataComponent,
+    // CurrentLevelComponent, and the editor/run-state singletons), and they tear down together.
+    // ---------------------------------------------------------------------------------------
+    private static void MeasureTeardownWorldComponentOrder()
+    {
+        Section("M4c (item 50) — the order BETWEEN world components at world.Dispose");
+
+        var first = WorldComponentOrderOfOneWorld(bFirst: true);
+        Report("world A: subscribe+Set WorldMarkerB then WorldMarkerC (first touch of both)", Render(first));
+
+        var second = WorldComponentOrderOfOneWorld(bFirst: false);
+        Report("world B: subscribe+Set WorldMarkerC then WorldMarkerB (REVERSED, fresh world)", Render(second));
+
+        var sameOrder = first.Count == second.Count && first.Count > 0 && first[0] == second[0];
+        Report("=> world-component order determinant",
+            sameOrder
+                ? "PROCESS-WIDE first touch — world B ignored its own subscription/Set order"
+                : "PER-WORLD — world B followed its own subscription/Set order");
+
+        // Same first-contact question as M4b's world D, on the world-component leg: Set D before
+        // anything subscribes, then subscribe E first.
+        var contact = new List<string>();
+        var third = new World();
+        third.Set(new WorldMarkerD { Value = 4 });     // FIRST contact with D: a Set
+        third.SubscribeWorldComponentRemoved((World _, in WorldMarkerE v) => contact.Add($"WorldMarkerE({v.Value})"));
+        third.SubscribeWorldComponentRemoved((World _, in WorldMarkerD v) => contact.Add($"WorldMarkerD({v.Value})"));
+        third.Set(new WorldMarkerE { Value = 5 });
+        third.Dispose();
+
+        Report("world C: Set D, then subscribe E→D, then Set E", Render(contact));
+        Report("=> the world-component mint is",
+            contact.Count > 0 && contact[0].StartsWith("WorldMarkerD", StringComparison.Ordinal)
+                ? "FIRST CONTACT of any kind — the facade's WorldChannel<T> rule matches"
+                : "SUBSCRIPTION order strictly (a pre-subscription Set does not mint)");
+    }
+
+    private static List<string> WorldComponentOrderOfOneWorld(bool bFirst)
+    {
+        var log = new List<string>();
+        var world = new World();
+
+        void SubscribeB() =>
+            world.SubscribeWorldComponentRemoved((World _, in WorldMarkerB v) => log.Add($"WorldMarkerB({v.Value})"));
+        void SubscribeC() =>
+            world.SubscribeWorldComponentRemoved((World _, in WorldMarkerC v) => log.Add($"WorldMarkerC({v.Value})"));
+
+        if (bFirst)
+        {
+            SubscribeB();
+            SubscribeC();
+            world.Set(new WorldMarkerB { Value = 1 });
+            world.Set(new WorldMarkerC { Value = 2 });
+        }
+        else
+        {
+            SubscribeC();
+            SubscribeB();
+            world.Set(new WorldMarkerC { Value = 2 });
+            world.Set(new WorldMarkerB { Value = 1 });
+        }
+
+        world.Dispose();
+        return log;
+    }
+
+    // ---------------------------------------------------------------------------------------
     // M5 — does a handler that DISPOSES entities during world.Dispose make the cascade fire twice?
     //
     // The engine has exactly this shape: LDtkTileParserSystem.cs:42 subscribes the world-component
@@ -332,12 +523,14 @@ internal static class Program
             var world = new World();
             var carriers = new List<Entity>();
 
-            // The sweep is DEPTH-CAPPED. Uncapped, the EntityDisposed leg overflows the stack:
-            // inside the handler the entity still reads IsAlive == true, so the sweep disposes it
-            // again, which republishes EntityDisposingMessage, which re-enters the handler — with no
-            // re-entrancy guard anywhere in DefaultEcs 0.18.0-beta01. The cap turns that unbounded
-            // recursion into an OBSERVATION (`sweeps stopped by the depth cap` > 0 means it recursed
-            // and would not have stopped on its own) while keeping this harness runnable.
+            // The sweep is DEPTH-CAPPED, and the cap is what this leg actually measures: inside the
+            // handler the entity still reads IsAlive == true, so the sweep disposes it again, which
+            // republishes EntityDisposingMessage, which re-enters the handler — with no re-entrancy
+            // guard anywhere in DefaultEcs 0.18.0-beta01. What is RECORDED is bounded re-entry
+            // (`sweeps stopped by the depth cap` > 0, with the state that would end the recursion
+            // unchanged at every level); that an uncapped run cannot terminate follows from it, but
+            // is an inference — a real stack overflow would take the harness with it, so it is
+            // deliberately never run.
             const int MaxSweepDepth = 3;
             var sweepDepth = 0;
             var cappedSweeps = 0;
@@ -400,6 +593,206 @@ internal static class Program
                 Report($"[{leg}] world.Dispose THREW", ex.GetType().FullName + ": " + ex.Message);
                 Report($"[{leg}] events before the throw", Render(log));
             }
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // M5b (item 41) — entities CREATED by a handler during world.Dispose.
+    //
+    // Item 41 is Dispose + Create + Publish, and the LDtk parser does all three from the same
+    // singleton dispatch. M5 covers the Dispose half at teardown; this covers the Create half:
+    // a world-component Removed handler that publishes spawn requests while the cascade is
+    // already walking. The question the facade has to answer is whether those newborn entities
+    // are reported at all, or whether teardown-time creation is event-silent.
+    // ---------------------------------------------------------------------------------------
+    private static void MeasureCreationDuringWorldDispose()
+    {
+        Section("M5b (item 41) — entities CREATED by a handler DURING world.Dispose");
+
+        var log = new List<string>();
+        var world = new World();
+        var born = new List<Entity>();
+
+        world.SubscribeEntityDisposed((in Entity e) => log.Add($"EntityDisposed({Identify(e)})"));
+        world.SubscribeEntityComponentRemoved((in Entity _, in EntityMarker v) => log.Add($"Removed(Marker {v.Value})"));
+        world.SubscribeEntityComponentAdded((in Entity _, in EntityMarker v) => log.Add($"Added(Marker {v.Value})"));
+        world.SubscribeWorldComponentRemoved((World w, in WorldMarker _) =>
+        {
+            log.Add("WorldComponentRemoved");
+            try
+            {
+                for (var i = 71; i <= 73; i++)
+                {
+                    var newborn = w.CreateEntity();
+                    newborn.Set(new EntityMarker { Value = i });
+                    born.Add(newborn);
+                }
+            }
+            catch (Exception ex)
+            {
+                log.Add($"(creating during teardown THREW {ex.GetType().Name})");
+            }
+        });
+
+        for (var i = 1; i <= 4; i++)
+        {
+            var e = world.CreateEntity();
+            e.Set(new EntityMarker { Value = i });
+        }
+
+        world.Set(new WorldMarker { Value = 99 });
+        log.Clear();
+
+        try
+        {
+            world.Dispose();
+            Report("events", Render(log));
+            Report("pre-existing carriers", 4);
+            Report("entities created by the handler", born.Count);
+            Report("EntityDisposed total", Count(log, "EntityDisposed"));
+            Report("Removed(Marker) total", Count(log, "Removed(Marker"));
+            var newbornAlive = 0;
+            foreach (var e in born)
+            {
+                try
+                {
+                    if (e.IsAlive) newbornAlive++;
+                }
+                catch (Exception)
+                {
+                    // A handle into a torn-down world may not even answer IsAlive.
+                }
+            }
+
+            Report("newborns still IsAlive after Dispose returned", newbornAlive);
+            Report("=> teardown-time creation is EVENT-SILENT",
+                Count(log, "EntityDisposed") <= 4 && Count(log, "Removed(Marker") <= 4 ? "YES" : "NO");
+        }
+        catch (Exception ex)
+        {
+            Report("world.Dispose THREW", ex.GetType().FullName + ": " + ex.Message);
+            Report("events before the throw", Render(log));
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // M5c (item 50) — a component ADDED to a still-live carrier during the teardown cascade.
+    //
+    // The mirror of M5b: not a new entity, a new component on an entity the cascade has already
+    // walked past. It decides whether teardown reports each entity's component set as of cascade
+    // ENTRY or as of dispatch time — which is exactly the choice a facade that snapshots the
+    // carriers up front has already made, silently.
+    // ---------------------------------------------------------------------------------------
+    private static void MeasureComponentAddedDuringWorldDispose()
+    {
+        Section("M5c (item 50) — a component SET on a live carrier DURING the teardown cascade");
+
+        var log = new List<string>();
+        var world = new World();
+        var carriers = new List<Entity>();
+
+        world.SubscribeEntityComponentRemoved((in Entity _, in EntityMarker v) =>
+        {
+            log.Add($"Removed(Marker {v.Value})");
+
+            // Give a carrier the cascade has NOT reported yet a component it did not have when
+            // teardown began. Was it subscribed and present at destroy time? Yes to both.
+            foreach (var carrier in carriers)
+            {
+                if (carrier.IsAlive && !carrier.Has<ManagedPayload>())
+                {
+                    carrier.Set(new ManagedPayload { Name = "born-mid-cascade" });
+                    break;
+                }
+            }
+        });
+        world.SubscribeEntityComponentRemoved((in Entity _, in ManagedPayload v) => log.Add($"Removed(Managed {v.Name})"));
+
+        for (var i = 1; i <= 3; i++)
+        {
+            var e = world.CreateEntity();
+            e.Set(new EntityMarker { Value = i });
+            carriers.Add(e);
+        }
+
+        try
+        {
+            world.Dispose();
+            Report("events", Render(log));
+            Report("Removed(Managed) for the mid-cascade component", Count(log, "Removed(Managed"));
+            Report("=> teardown reports the component set as of",
+                Count(log, "Removed(Managed") > 0 ? "DISPATCH TIME (the late component is reported)" : "CASCADE ENTRY (the late component is silent)");
+        }
+        catch (Exception ex)
+        {
+            Report("world.Dispose THREW", ex.GetType().FullName + ": " + ex.Message);
+            Report("events before the throw", Render(log));
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // M7 (item 50) — a handler that calls world.Dispose DURING world.Dispose.
+    //
+    // The re-entrancy shape one level up from M5: not "dispose the entities", but "dispose the
+    // world". Six engine sites call world.Dispose (screen teardown, Game.UnloadContent, the
+    // editor's world swap), and a handler that reaches a second one re-enters the cascade. The
+    // sweep is depth-capped for the same reason M5's is: an unbounded recursion is not runnable.
+    // ---------------------------------------------------------------------------------------
+    private static void MeasureWorldDisposeInsideHandler()
+    {
+        Section("M7 (item 50) — a handler that calls world.Dispose DURING world.Dispose");
+
+        var log = new List<string>();
+        var world = new World();
+
+        const int MaxDepth = 4;
+        var depth = 0;
+        var capped = 0;
+
+        world.SubscribeEntityDisposed((in Entity e) =>
+        {
+            log.Add($"EntityDisposed({Identify(e)})");
+            if (depth >= MaxDepth)
+            {
+                capped++;
+                return;
+            }
+
+            depth++;
+            try
+            {
+                world.Dispose();
+            }
+            catch (Exception ex)
+            {
+                log.Add($"(nested world.Dispose THREW {ex.GetType().Name})");
+            }
+
+            depth--;
+        });
+        world.SubscribeEntityComponentRemoved((in Entity _, in EntityMarker v) => log.Add($"Removed(Marker {v.Value})"));
+
+        for (var i = 1; i <= 2; i++)
+        {
+            var e = world.CreateEntity();
+            e.Set(new EntityMarker { Value = i });
+        }
+
+        try
+        {
+            world.Dispose();
+            Report("events", Render(log));
+            Report("carriers", 2);
+            Report("EntityDisposed total", Count(log, "EntityDisposed"));
+            Report("nested Dispose calls stopped by the depth cap", capped);
+            Report("=> world.Dispose IS RE-ENTRANCY-GUARDED",
+                capped == 0 && Count(log, "EntityDisposed") == 2 ? "YES" : "NO (the cap is what stopped it)");
+        }
+        catch (Exception ex)
+        {
+            Report("world.Dispose THREW", ex.GetType().FullName + ": " + ex.Message);
+            Report("events before the throw", Render(log));
+            Report("nested Dispose calls stopped by the depth cap", capped);
         }
     }
 
@@ -501,7 +894,67 @@ internal static class Program
         public int Value;
     }
 
+    /// <summary>Second world component — M4c's discriminator. Touched by nothing else.</summary>
+    private struct WorldMarkerB
+    {
+        public int Value;
+    }
+
+    /// <summary>Third world component — M4c's discriminator. Touched by nothing else.</summary>
+    private struct WorldMarkerC
+    {
+        public int Value;
+    }
+
+    /// <summary>M4c's first-contact leg only.</summary>
+    private struct WorldMarkerD
+    {
+        public int Value;
+    }
+
+    /// <summary>M4c's first-contact leg only.</summary>
+    private struct WorldMarkerE
+    {
+        public int Value;
+    }
+
     private struct EntityMarker
+    {
+        public int Value;
+    }
+
+    /// <summary>M4b only — so world A below is genuinely this type's first touch in the process.</summary>
+    private struct PoolAlpha
+    {
+        public int Value;
+    }
+
+    /// <summary>M4b only — see <see cref="PoolAlpha"/>.</summary>
+    private struct PoolBeta
+    {
+        public int Value;
+    }
+
+    /// <summary>M4b's split leg only — subscribe order and Set order disagree for this pair.</summary>
+    private struct PoolGamma
+    {
+        public int Value;
+    }
+
+    /// <summary>M4b's split leg only — see <see cref="PoolGamma"/>.</summary>
+    private struct PoolDelta
+    {
+        public int Value;
+    }
+
+    /// <summary>M4b's first-contact leg only.</summary>
+    private struct PoolEpsilon
+    {
+        public int Value;
+    }
+
+    /// <summary>M4b's first-contact leg only.</summary>
+    private struct PoolZeta
     {
         public int Value;
     }

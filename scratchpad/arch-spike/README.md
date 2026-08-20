@@ -10,11 +10,11 @@ this tree rides the `scratchpad/` allowlist entry of the wave-1 `EcsBoundaryLint
 
 | Leg | Contract item | Result |
 |---|---|---|
-| Arch in a **KNI/BlazorGL WASM** head — builds, publishes (trimmed), **runs in Chrome** | 2 (C2) | **PASS** — 32/32 checks |
-| Arch under **NativeAOT** (`PublishAot=true` + `Arch.AOT.SourceGenerator`) — publishes and **runs** | 2 (C2) | **PASS** — 32/32 checks, but only with a namespace shim (see finding 1) |
-| Arch **process-wide statics** across `World.Destroy` (H9 / C12) | H9 row, C12 | measured — `World.Worlds` resets, the component registry does not (§1, finding 7) |
+| Arch in a **KNI/BlazorGL WASM** head — builds, publishes (trimmed), **runs in Chrome** | 2 (C2) | **PASS** — 33/33 checks |
+| Arch under **NativeAOT** (`PublishAot=true` + `Arch.AOT.SourceGenerator`) — publishes and **runs** | 2 (C2) | **PASS** — 33/33 checks, but only with a namespace shim (see finding 1) |
+| Arch **process-wide statics** across `World.Destroy` (H9 / C12) | H9 row, C12 | measured over the **enumerated** set — five statics on `World`, of which one resets, one accumulates and one is never touched (§1, finding 6) |
 | DefaultEcs **subscribe-replay + `NotifyChanged`** measurements | 42, 66 | measured — see the table below |
-| **Facade-fired events over Arch** (H7/D1) — Added/Changed(old,new)/Removed, singleton notifications, predicate membership, M10, the LDtk mass-parser shape, teardown | 3 (C3), 41 | **PASS** — 106/106 checks, exit 0 |
+| **Facade-fired events over Arch** (H7/D1) — Added/Changed(old,new)/Removed, singleton notifications, predicate membership, M10, the LDtk mass-parser shape, teardown (inert, sweeping, creating and re-entrant) | 3 (C3), 41 | **PASS** — 125/125 checks, exit 0 |
 
 Every count above is printed by the artifact itself (`== N checks, M failed ==`), so it can be
 recounted from a run rather than taken from this table.
@@ -24,9 +24,9 @@ recounted from a run rather than taken from this table.
 ## 0. Contract deltas — amend the plan before wave 1
 
 Wave 0's fourth deliverable is *findings*, and the plan grants them authority: "if the spike
-invalidates part of this plan, **the plan is amended before wave 1**". Seven contract surfaces
+invalidates part of this plan, **the plan is amended before wave 1**". Eight contract surfaces
 changed status below. **A1 blocks wave 1** — it invalidates a pinned semantic *and* the D10
-resolution that rests on it. A2–A7 widen or correct scope the plan does not currently name.
+resolution that rests on it. A2–A8 widen or correct scope the plan does not currently name.
 
 Wave 0 deliberately does **not** edit the plan or the committed deep-plan contract
 (`.claude/deep-plan/issue-119-7b2cbe2a.md`); it reports, and the amendment is made upstream before
@@ -36,11 +36,12 @@ wave 1 writes the corresponding contract test. Anchors below are for whoever mak
 |---|---|---|---|---|
 | **A1** | item **50** + **D10**; deep-plan `:107`, rows `:898`, `:1461`, `:1500-1501`, `:1818`, `:1898`, `:2092-2103`, contradiction 2 at `:39` | `world.Dispose` is event-silent, **"matching DefaultEcs"** | DefaultEcs fires a **10-event cascade** in a measured ORDER (§2) and the facade reproduces it over Arch (§3, S7) | The parity clause is **false**. Deep-plan contradiction 2 (`:39`) offered two branches and D10 took the one justified by parity; that justification is gone. Either (i) keep event-silence as a **deliberate behaviour change** — then C7 byte-identity must be shown not to observe it, and `AudioSystem.OnAudioSourceRemoved` stops running at teardown as it does today — or (ii) fire the full cascade (real parity) and re-resolve contradiction 2 by testing pipeline-before-world ordering at **all six** `world.Dispose` sites. Not a wording fix: item 50's test asserts the opposite of the measurement. The restatement must also pick a side on the **double-fire** the same measurement found (§2, M5): the engine's own unload sweep runs a second time at teardown TODAY. |
 | **A2** | **D1**'s documented fallback ("vendoring Arch with `EVENTS` (option b) stays the documented fallback") | option (b) is a fallback in reach | Arch 2.1.0 ships `Subscribe*` publicly; the raise sites are behind the `EVENTS` build flag, so subscriptions compile and fire **zero** times (§3, finding 1) | Restate the fallback's cost as **building Arch from source**, or drop option (b). A silently-inert subscription is also a wave-2 trap: the guard must keep native Arch events unused, not merely unsubscribed. |
-| **A3** | §6 precondition diff row *Iteration order* → "**unspecified**; systems needing order sort explicitly"; deep-plan H4 rows `:664-669`; items 22/48/58/70/74 | order is arbitrary, so any deterministic tie-break suffices | Arch enumerates a chunk in **descending** index order, in both the chunk enumerator and `Query(desc, ForEach)` (§3, finding 2) | "Unspecified" understates it: the order is deterministically **reversed** vs DefaultEcs, so every first-match-and-break pick (48/58) silently flips its answer and every membership sweep written to disk (`SceneWriter`, 70/74) inverts. The row should read *facade-imposed* order, and it is **three** orders, not one: entity-id enumeration, publication-order membership, and the **component-type order of the Removed cascade** (§3, finding 8) — the last one is the one that reads straight off Arch's archetype signature unless the facade overrides it. Together they are what makes item 22 testable. |
+| **A3** | §6 precondition diff row *Iteration order* → "**unspecified**; systems needing order sort explicitly"; deep-plan H4 rows `:664-669`; items 22/48/58/70/74 | order is arbitrary, so any deterministic tie-break suffices | Arch enumerates in **descending** index order — measured on **both** iteration forms (the chunk enumerator and `Query(desc, ForEach)`) and **end to end across 4 000 entities spanning several chunks**, not only inside one chunk (§3, finding 2) | "Unspecified" understates it: the order is deterministically **reversed** vs DefaultEcs, so every first-match-and-break pick (48/58) silently flips its answer and every membership sweep written to disk (`SceneWriter`, 70/74) inverts end to end. The row should read *facade-imposed* order, and it is **four** orders, not one: entity-id enumeration, publication-order membership, the **component-type order of the entity-component `Removed` pools**, and the **component-type order between world components** (§3, finding 8) — the third reads straight off Arch's archetype signature unless the facade overrides it, and the fourth falls out of `Dictionary` enumeration unless the facade mints an id for world components too. Together they are what makes item 22 testable. **Scope:** the two teardown orders hold while no handler mutates during the cascade; the engine's own unload sweep breaks both (§3, S8), so item 22's teardown clause has to say "with inert handlers" or name the sweep's shape. |
 | **A4** | **D6** ("`Arch.AOT.SourceGenerator` yes (console/iOS AOT)"); packaging items 26/31/37 | registration is an AOT optimisation on the heads that need it | Registration is **mandatory** — without it the binary dies on the *first* `world.Create`, for plain structs too — and a source generator only sees its own compilation (§1, finding 2) | Name the obligation **per assembly that declares components**: `MonoDreams.dll`, every game assembly, every CLI-scaffolded project. That is wave-2 facade scope *and* wave-4 scaffolder/manifest-honesty scope; neither currently carries it. Narrow D6's scope too: WASM does **not** need it (§1, finding 3). |
 | **A5** | item **2**'s AOT leg | `Arch.AOT.SourceGenerator` works as shipped against the pinned Arch | 1.0.1 (the latest published version) emits Arch 1.x namespaces and fails `CS0103` against Arch 2.1.0; a 5-line forwarding shim restores it (§1, finding 1) | Item 2 is satisfied, but only *with* `shared/ArchCoreUtilsShim.cs`. Wave 2/3 must elect an owner — ship the shim beside the facade, vendor a fixed generator, or have the facade register component types itself (it already needs a type registry for `ReadAllComponents`). |
 | **A6** | item **42**'s conditional; deep-plan matrix rows `:1487-1488` and `:1976-1980` ("entity-level replays, singleton does not"); the foundation premise at `:2792` ("entity-level `SubscribeComponentAdded` replays existing state exactly as DefaultEcs") | entity-level subscriptions **replay** already-present components; only the singleton leg does not | **NO replay on any entity-level verb.** Two live carriers at subscribe time produce zero calls, and `SubscribeEntityComponentChanged` / `…Removed` do not replay either (§2, M2) | The parenthetical is backwards. Rows `:1487-1488` and `:1976-1980` and premise `:2792` should read *no replay, all three entity verbs* — the same answer the singleton leg already has. This is not cosmetic: a wave-1 facade built from the current wording ships spurious `Added` replay on every entity subscription, which is precisely the double-parse item 66's resolution was written to prevent. |
-| **A7** | **C12** ("`ProcessWideState.Reset` returns Arch `World.Worlds`/component statics to baseline"); the H9 dimension-violation row at deep-plan `:2732` (and `:2714`), which assigns the proof to wave 0 | one reset hook returns *both* Arch registries to baseline | Two registries, two answers (§1, finding 6). `World.Destroy` DOES reset the world half — `World.WorldSize` returns to baseline, the `World.Worlds` slot is nulled and the world id is reused. The **component-type registry is process-lifetime**: it survives every `Destroy` unchanged, which is what keeps the next world usable — and Arch 2.1.0's only clearing entry point, `ComponentRegistry.Remove<T>()`, **throws `ArgumentNullException`** while leaving the entry half-removed, after which a lazily-registered target dies in `ArrayRegistry.GetArray` exactly like the AOT negative control | Restate C12 as **"reset `World.Worlds` only"**, and name the component-type registry as deliberately process-lifetime and never to be cleared — there is no working API to clear it, and clearing it reproduces the negative control instead of resetting anything. `ProcessWideState.Reset`'s Arch hook is therefore `World.Destroy` per live world, nothing more. |
+| **A7** | **C12** ("`ProcessWideState.Reset` returns Arch `World.Worlds`/component statics to baseline"); the H9 dimension-violation row at deep-plan `:2732` (and `:2714`), which assigns the proof to wave 0 | one reset hook returns *both* Arch registries to baseline | **Five statics on `World`, enumerated rather than assumed** (§1, finding 6), plus `ComponentRegistry` — and they answer differently. `World.Destroy` DOES reset the world half — `World.WorldSize` returns to baseline, the `World.Worlds` slot is nulled and the world id is reused. The **component-type registry is process-lifetime**: it survives every `Destroy` unchanged, which is what keeps the next world usable — and Arch 2.1.0's only clearing entry point, `ComponentRegistry.Remove<T>()`, **throws `ArgumentNullException`** while leaving the entry half-removed, after which a lazily-registered target dies in `ArrayRegistry.GetArray` exactly like the AOT negative control. **And a third static never returns to baseline at all:** `World.Destroy` does not free an id, it **enqueues** it on the process-wide `World.RecycledWorldIds`, and `World.Create` dequeues — measured, two worlds freed high-id-first hand the **higher** id to the next `World.Create` (`2,1`, not `1,2`). `World.SharedJobScheduler` is a fourth (static, `null` today, untouched by `Destroy`); `World.InitialCapacity` a fifth (mutable config constant) | Restate C12 as **"reset `World.Worlds` only"**, and name the component-type registry as deliberately process-lifetime and never to be cleared — there is no working API to clear it, and clearing it reproduces the negative control instead of resetting anything. `ProcessWideState.Reset`'s Arch hook is `World.Destroy` per live world — but "nothing more" must now be said with the **recycled-id queue named as unresettable**: world ids after a `Reset` depend on the order earlier worlds were destroyed in, i.e. on the xUnit shuffle C12's own `MONODREAMS_TEST_SEED=8` clause exists to survive. So C12 must also forbid asserting on a world id (or on anything derived from one), and register `World.SharedJobScheduler` the moment wave 2 sets it for a parallel runner. |
+| **A8** | the C12 `ProcessWideState` rows at deep-plan `:657` and `:1220` ("verified `ProcessWideState.cs:41-99` **tracks no ECS statics today** — additions land same PR"); the C5 using-sweep base at `:2722` (449 lines / 320 files on main @`7b2cbe2a`) | `ProcessWideState` holds engine statics only; the **Arch** `World.Worlds` hook will be the first ECS entry it ever gains | **This PR already gave it one, and it is a *DefaultEcs* entry.** Commit `26769cf0` (the `MONODREAMS_TEST_SEED=8` flake fix that unblocked wave 0's own verification) adds a reflection hook into `DefaultEcs.Internal.EntityQueryFilterFactory._filters` — `ProcessWideState.cs:63-71` (the `FieldInfo` + reachability flag), `:136` (the `Reset` call) and `:170-174` (`ResetEcsQueryFilterCache`) — plus a `using DefaultEcs;` in a git-tracked `.cs` outside `scratchpad/` | Rows `:657`/`:1220` are stale as written: one ECS static **is** tracked. State that it is **deleted, not ported**, at wave-1 close (it memoises a DefaultEcs predicate cache that ceases to exist with DefaultEcs), and grow the C5 sweep base at `:2722` by the 1 file / 1 line this PR added. Wave 1 must also say what carries the issue-#114 flake protection afterwards: the collision is upstream-specific (a string key built from `ComponentEnum.ToString()`), and the wave-0 enumeration of Arch's `World` statics found **five, none of them a query or predicate cache** — but that enumeration covered `World` only, so wave 1 owes either "no replacement needed", backed by the same enumeration run over the facade's and Arch's query types, or a named replacement hook. Not assumed either way. |
 
 ### Deliberate strengthenings beyond the contract (kept)
 
@@ -55,6 +56,11 @@ None of these is scope-creep; each one is why a finding above exists at all.
 | The **H9 / C12 registry probe** in the shared exercise (`process-wide statics across World.Destroy`) | `shared/ArchExercise.cs` | Not a strengthening so much as a debt paid: the plan's H9 dimension-violation row assigns this proof to wave 0 in so many words, and it produced delta **A7** — C12 as written promises a reset that Arch cannot perform. |
 | **S8** — the LDtk unload sweep running *during* `world.Dispose` | `facade-events-proof/Scenarios.cs` | S6 covers the sweep during play and S7 covers teardown with inert handlers; the engine does both at once at every screen change. It is where the M5 double-fire became visible at all. |
 | **M5 / M6** in the measurement harness (re-entrant teardown handler, post-teardown `EntitySet` read) | `defaultecs-measurements/Program.cs` | S8 and S7's post-teardown assertions are only meaningful next to what the incumbent does; both answers turned out to be surprises (double-fire; `NullReferenceException`). |
+| **S9** — a handler that calls `world.Dispose` *during* `world.Dispose`, and **M7**, the same shape on DefaultEcs | `facade-events-proof/Scenarios.cs`, `defaultecs-measurements/Program.cs` | S8 re-enters *entity* disposal; six engine sites call `world.Dispose` (screen teardown, `Game.UnloadContent`, the editor's world swap), so re-entering *world* disposal is a live shape. Without a guard set before the cascade the facade replayed every event (measured 3× on two carriers before a probe cap stopped it). M7 measured DefaultEcs guarding it, so the fix is parity, not invention. |
+| **M4b / M4c** — what *determines* the two teardown orders | `defaultecs-measurements/Program.cs` | M4 measured *that* the cascade is pool-grouped and world-components-last; it could not say what orders the pools, because subscription order, `Set` order and process-wide first touch coincide in its fixture. The engine builds **one world per screen**, so per-world and process-wide ids agree on the first screen and diverge on the second. Measured: **per-world subscription order**, on both legs — which is what the facade now mints, for entity *and* world components. |
+| **M5b / M5c** and **S8 leg C** — entities created, and components `Set`, *during* the cascade | both harnesses | Item 41 is Dispose + Create + Publish; S6 covers Create during play and S8 leg A covers Dispose at teardown, leaving Create at teardown unmeasured. M5b: teardown-time creation is event-silent on DefaultEcs (Added fires, nothing else). M5c: a component `Set` mid-cascade on a not-yet-reported carrier **is** reported — which is why the facade re-reads membership at dispatch time instead of snapshotting it. |
+| The **enumerated** `World` static probe (five fields) + the recycled-id order check | `shared/ArchExercise.cs` | A7 says "`World.Destroy` per live world, **nothing more**". That is only checkable against an enumerated set: the enumeration found `RecycledWorldIds`, which no API drains, and `SharedJobScheduler`, which `Destroy` never touches. |
+| **S0's second and third order probes** — `Query(desc, ForEach)` and a 4 000-entity cross-chunk sweep | `facade-events-proof/Scenarios.cs` | Finding 2's claim is what items 48/58/70/74 rest on, and the facade's `EntitySystem` will run the `ForEach` form, not the chunk enumerator. A single-chunk probe of one of the two forms cannot carry it. |
 | `BenchmarkDotNet.Artifacts/` in `.gitignore` | `.gitignore` | BDN writes artifacts relative to the cwd, so running the benchmarks from the repo root drops them outside `bin/`. |
 
 ---
@@ -94,9 +100,9 @@ dotnet publish scratchpad/arch-spike/aot-console/AotConsole.csproj -c Release -r
 
 | Target | Runtime facts | Outcome |
 |---|---|---|
-| NativeAOT, `osx-arm64` | `IsDynamicCodeSupported=False`, 2.1 MB Mach-O arm64 binary | `32 checks, 0 failed`, exit 0 |
-| KNI/BlazorGL WASM, Chrome 151 headless | `OSArchitecture=Wasm`, `IsDynamicCodeSupported=True` (interpreter), `IsDynamicCodeCompiled=False`, KNI `Xna.Framework 4.2.9001` loaded in the same bundle | `32 checks, 0 failed`, `ARCH-WASM PASS` |
-| WASM negative control (`UseArchAotGenerator=false`) | `ComponentRegistry.Size before any World = 0` — lazy registration | `32 checks, 0 failed`, `ARCH-WASM PASS` |
+| NativeAOT, `osx-arm64` | `IsDynamicCodeSupported=False`, 2.1 MB Mach-O arm64 binary | `33 checks, 0 failed`, exit 0 |
+| KNI/BlazorGL WASM, Chrome 151 headless | `OSArchitecture=Wasm`, `IsDynamicCodeSupported=True` (interpreter), `IsDynamicCodeCompiled=False`, KNI `Xna.Framework 4.2.9001` loaded in the same bundle | `33 checks, 0 failed`, `ARCH-WASM PASS` |
+| WASM negative control (`UseArchAotGenerator=false`) | `ComponentRegistry.Size before any World = 0` — lazy registration, and `Has<Doomed>()` reads **false** before first use where both generator legs read true | `33 checks, 0 failed`, `ARCH-WASM PASS` |
 | AOT negative control (`UseArchAotGenerator=false`) | same publish, no priming | `0 checks, 1 failed` — dies inside the FIRST `world.Create` before any check runs |
 
 The exercise prints its own `== N checks, M failed ==` line, so these numbers are recountable from a
@@ -129,7 +135,7 @@ Published WASM bundle: `_framework/` is 16 MB (uncompressed, `.br`/`.gz` sibling
    that declares components**: `MonoDreams.dll`, every game assembly, and every CLI-scaffolded
    project. That is a wave-2/wave-4 packaging obligation the plan does not currently name.
 3. **Under WASM the registration is NOT required.** The same negative control, published through
-   the Blazor Release trimmer, passes all 32 checks in Chrome: the WASM runtime keeps dynamic code
+   the Blazor Release trimmer, passes all 33 checks in Chrome: the WASM runtime keeps dynamic code
    support (interpreter) and the trimmer leaves the component array types reachable. So the AOT
    generator is an *AOT-target* obligation (console/iOS AOT), not a web one — D6's "yes" is correct
    but its scope is narrower than "everywhere".
@@ -142,13 +148,33 @@ Published WASM bundle: `_framework/` is 16 MB (uncompressed, `.br`/`.gz` sibling
    warnings`. It does not block the publish and did not produce a runtime failure in this exercise,
    but it means Arch is not annotated as fully AOT-safe: any wave-2 AOT claim has to be backed by a
    run, not by a clean build.
-6. **Arch's two process-wide registries reset differently, and only one of them resets at all**
+6. **Arch's process-wide statics reset differently, and only one of them resets at all**
    (contract delta **A7**; this is the H9 obligation the plan assigns to wave 0). Both legs measure
-   the same thing, in the section `process-wide statics across World.Destroy`:
+   the same thing, in the section `process-wide statics across World.Destroy`. The set is
+   **enumerated, not assumed** — the probe reflects over every static field on `Arch.Core.World`
+   and prints it, because "`World.Destroy` per live world, *nothing more*" is a claim about a set:
+   ```
+   World.<Worlds>k__BackingField            Arch.Core.World[]
+   World.worldSizeUnsafe                    1
+   World.<RecycledWorldIds>k__BackingField  Collections.Pooled.PooledQueue`1[System.Int32]
+   World.<SharedJobScheduler>k__BackingField null
+   World.InitialCapacity                    128
+   ```
+   (identical on both legs; the reflection survives both the Blazor trimmer and NativeAOT, and is
+   reported rather than checked precisely because that is not guaranteed to keep being true.)
    - **`World.Worlds` / `World.WorldSize` DO reset.** `World.Destroy` nulls the world's slot,
      `World.WorldSize` returns to its pre-`Create` value, and the next `World.Create` **reuses the
      freed id**. A world built after a `Destroy` still constructs a managed archetype, so nothing
      is left half-torn-down. `ProcessWideState.Reset`'s Arch hook is exactly this, per live world.
+   - **`World.RecycledWorldIds` never returns to baseline.** `World.Destroy` does not *free* an id,
+     it **enqueues** it; `World.Create` dequeues. Measured: two worlds freed higher-id-first hand
+     the ids back as `2,1` — freed order, not lowest-free-first — so after any reset the id a world
+     gets depends on the order earlier worlds were destroyed in. Nothing drains the queue, and Arch
+     exposes no API that could. Anything keyed on a world id is therefore shuffle-order dependent,
+     which is the failure mode C12's `MONODREAMS_TEST_SEED=8` clause exists to catch.
+   - **`World.SharedJobScheduler` is a fourth static** — `null` today, untouched by `Destroy`, and
+     the one wave 2 sets if it ever turns on Arch's multithreaded queries. `World.InitialCapacity`
+     is a fifth (a mutable configuration constant, 128).
    - **`ComponentRegistry` does NOT, and must never be made to.** It is process-lifetime: `Size`
      and `Has<T>()` are unchanged across `World.Destroy`, which is *why* the world created
      afterwards works. Under the AOT generator it is primed once by a `[ModuleInitializer]`, which
@@ -162,8 +188,9 @@ Published WASM bundle: `_framework/` is 16 MB (uncompressed, `.br`/`.gz` sibling
      generator on, the parallel `ArrayRegistry` priming survives and the create still succeeds,
      which is why the checked claim is "Remove throws", the part both targets agree on.)
 
-   So C12 cannot promise both halves. Restated: reset `World.Worlds`; leave the component-type
-   registry alone, forever.
+   So C12 cannot promise both halves, and "nothing more" is not free either. Restated: reset
+   `World.Worlds`; leave the component-type registry alone, forever; and name the recycled-id queue
+   as unresettable, so no test and no engine invariant may depend on a world id.
 7. **The `.Web` project-name suffix is load-bearing.** `Directory.Build.props` relocates `obj`/`bin`
    for every project built with `-p:MonoDreamsPlatform=web` *except* those whose name ends in
    `.Web`, because Blazor's static-web-assets/`_framework` layout breaks when it moves. The head is
@@ -250,6 +277,33 @@ cannot tell the candidates apart:
 
 An entity disposed *before* teardown is not reported twice.
 
+**Both orders are scoped to INERT handlers.** M4's handlers only log. The moment a handler mutates —
+which the engine's own unload sweep does at every screen change — the disposals it triggers re-enter
+the per-entity path, so pool-grouping collapses for whatever the sweep takes and `ComponentRemoved`
+can fire *after* `WorldComponentRemoved` (measured on the facade in §3, S8 leg A; M5 measures the
+DefaultEcs side of the same shape). Item 50's restatement must carry that scope, not just the order.
+
+**What *determines* the pool order (M4b), and the order between world components (M4c).** M4's own
+fixture cannot say: subscription order, component-`Set` order and process-wide first touch coincide
+in it. That ambiguity is not academic — the engine builds **one `World` per screen**
+(`LevelSelectionScreen.cs:128`, `SplashScreen.cs:59`), so a per-world rule and a process-wide rule
+agree on the first screen and can diverge on the second. Two worlds in one process, the second
+subscribing and `Set`ting in the **reversed** order, settle it; two further legs split subscription
+order from `Set` order and put a `Set` *before* any subscription:
+
+| Leg | Measured on DefaultEcs 0.18.0-beta01 |
+|---|---|
+| pools, two worlds with reversed orders (M4b) | **PER-WORLD** — world B followed its own order, not world A's |
+| pools, subscribe Gamma→Delta but `Set` Delta→Gamma (M4b) | subscription order wins over `Set` order |
+| pools, `Set` Zeta *before* subscribing to anything (M4b) | **subscription order strictly** — a pre-subscription `Set` does not claim the earlier slot |
+| between world components, the same three legs (M4c) | identical answers: **per-world, subscription order strictly** |
+
+So the ordering key is "the order this world's subscriptions were made", for entity components and
+world components alike — one registry, one rule. The facade mints its component-type id in exactly
+that place (`MiniFacade.cs`, `Channel<T>`/`WorldChannel<T>`), and M4c is the reason the world-component
+leg of its cascade is sorted at all: a raw `Dictionary` walk would have been BCL insertion order —
+stable in practice, chosen by nothing.
+
 This matters beyond bookkeeping: `AudioSystem.OnAudioSourceRemoved` (`AudioSystem.cs:133-137`) **does**
 run on `world.Dispose` today, so world teardown already cuts live audio instances — the authority
 D10 assigns exclusively to `AudioSystem.Dispose`. Wave 1 must either restate item 50 as "world.Dispose
@@ -266,12 +320,20 @@ handler runs against entities the cascade is already reporting, so M5 measured w
 | Leg | Measured on DefaultEcs 0.18.0-beta01 |
 |---|---|
 | **world-component Removed** (the engine's) | the sweep still sees **3 of 3 entities alive**, and disposing them fires **`EntityDisposed` ×2 and `ComponentRemoved` ×2 per entity** — the teardown walk reports them, the sweep reports them again |
-| **`EntityDisposed`** | **does not terminate.** The entity reads `IsAlive == true` inside its own `EntityDisposed` handler, disposing it republishes, and nothing in DefaultEcs guards re-entry — an uncapped sweep overflows the stack. The harness depth-caps the sweep to stay runnable; `sweeps stopped by the depth cap > 0` is the observation that it recursed |
+| **`EntityDisposed`** | **does not terminate.** The entity reads `IsAlive == true` inside its own `EntityDisposed` handler, disposing it republishes, and nothing in DefaultEcs guards re-entry. What the harness *records* is bounded re-entry: `sweeps stopped by the depth cap` = 3, the same entity re-entered at every level with the state that would end the recursion unchanged. Uncapped it therefore cannot terminate — an **inference** from the measurement (a stack overflow would take the run with it), not a recorded overflow |
 
 Item 50's restatement therefore has to say which of those is the contract: the double-fire is
 today's behaviour, so "one event per entity" would be a **second** deliberate change hiding inside
 the first. The facade proof reproduces the double-fire and asserts it (§3, S8), and bounds the
 recursion the incumbent does not.
+
+### M5b / M5c / M7 — the three teardown shapes M5 leaves out
+
+| # | Question | Measured on DefaultEcs 0.18.0-beta01 |
+|---|---|---|
+| **M5b** (item **41**) | a handler that **creates** entities during `world.Dispose` — item 41 is Dispose + Create + Publish, and the LDtk parser does all three | **Teardown-time creation is event-silent.** 4 pre-existing carriers give 4 `EntityDisposed` + 4 `ComponentRemoved`; the 3 newborns fire their `Added` and **nothing else**, then die with the world (`IsAlive == false` for all 3 once `Dispose` returned). No throw — creating during teardown is legal, just unreported |
+| **M5c** (item **50**) | a component **`Set` on a still-live carrier** during the cascade — does teardown report the component set as of cascade *entry* or as of *dispatch*? | **As of DISPATCH.** A `ManagedPayload` added by a `Removed` handler to a carrier the walk had not reached yet **is** reported. A facade that snapshots each carrier's components before dispatching would silently drop it — which is why `MiniFacade` re-reads membership per pool instead |
+| **M7** (item **50**) | a handler that calls **`world.Dispose` during `world.Dispose`** — six engine sites call it (screen teardown, `Game.UnloadContent`, the editor's world swap) | **Guarded.** 2 carriers → 2 `EntityDisposed` + 2 `ComponentRemoved`, depth cap never hit. The nested call is a no-op, so this is one place the incumbent is *stricter* than the naive implementation — the facade had to add the same guard to reach parity (§3, S9) |
 
 ---
 
@@ -279,7 +341,7 @@ recursion the incumbent does not.
 
 `facade-events-proof/` **runs** decision D1 rather than asserting it. It contains a cut-down facade
 (`MiniFacade.cs`) that owns `Set` / `Remove` / `NotifyChanged` / `Dispose` / singleton `Set` and raises
-the engine's reactive events itself over Arch 2.1.0, plus nine scenarios (`Scenarios.cs`) that drive
+the engine's reactive events itself over Arch 2.1.0, plus ten scenarios (`Scenarios.cs`) that drive
 it through the shapes the migration has to keep working. Component types are named after the engine
 components they stand for, so a check reads as a claim about a real site.
 
@@ -287,19 +349,20 @@ components they stand for, so a check reads as a claim about a real site.
 cd scratchpad/arch-spike/facade-events-proof && dotnet run -c Release   # exit code == failing checks
 ```
 
-### Result: 106 checks, 0 failures
+### Result: 125 checks, 0 failures
 
 | Scenario | Stands for | What it establishes |
 |---|---|---|
-| S0 | D1's premise | Arch raises nothing; raw Arch iteration order measured |
+| S0 | D1's premise | Arch raises nothing; Arch's own iteration order measured on **both** forms (chunk enumerator and `Query(desc, ForEach)`) and **across chunks** (4 000 entities, several chunks, descending end to end) |
 | S1 | M2/M6, D14, items 39/40/67 | Set absent→Added, present→Changed(**old**,new); `NotifyChanged`→Changed with `ReferenceEquals(old,new)`; `Set(new instance)`→different refs; `NotifyChanged` on absent throws; Remove-absent silent; `Dispose`→EntityDisposed then ComponentRemoved per component with `IsAlive == true`; double-Dispose silent |
 | S2 | items 17/56/75/76 | id recycled by Arch; the stale handle stays dead, `!=` the new occupant, keyed dictionaries do not collide |
 | S3 | M5, CORE_TENETS §9, items 8/39/43/66 | singleton Added / **Changed-not-Added** on re-Set / Removed / silent absent-Remove / Added again after Remove; no replay on subscribe; no carrier entity in any enumeration |
 | S4 | M1, items 9/10/11/22/54, C11 | predicate membership backfilled at construction, then moved **only** by publication — an in-place flip keeps the body falling and keeps the retargeted sprite in the old pass; `Count` throws; 10k transient queries leak nothing |
 | S5 | **M10** | `Set<ColliderTag>` from inside the `BoxCollider` Added handler: tag present when the outer `Set` returns, the collider set sees it the same frame, 500-entity batch clean, and the **discarded** subscription handle still dispatches after a forced GC |
 | S6 | **item 41** | the LDtk parser shape end to end: sweep + 500 `Publish` inside a singleton **Added** dispatch, mass sweep inside **Removed**, three parses with no leak and no stale membership — nesting reaches 3 levels (singleton → message → component Added) |
-| S7 | item 50, items 22/67 | `world.Dispose` fires the same 10-event cascade DefaultEcs was measured to fire, **in the same order** — the whole sequence is asserted, over the same discriminating fixture M4 uses (a recycled id, and one carrier holding two subscribed component types). Also: a query held across teardown reads empty, and a disposed world holds no subscriptions and no query registrations |
-| S8 | **item 41 at teardown**, item 50 | the LDtk unload sweep running *during* `world.Dispose`: from the world-component Removed leg it double-fires exactly as DefaultEcs was measured to (M5), and from the `EntityDisposed` leg the facade's per-entity guard **terminates** where DefaultEcs recurses until the stack overflows |
+| S7 | item 50, items 22/67 | `world.Dispose` with **inert** handlers fires the cascade DefaultEcs was measured to fire, **in the same order** — the whole 11-event sequence is asserted, over M4's discriminating fixture (a recycled id, one carrier holding two subscribed component types) plus a **second** world singleton `Set` in the reverse of its subscription order, so the world-component leg is an asserted order too (M4c's DefaultEcs answer). Also: a query held across teardown reads empty, and a disposed world holds no subscriptions and no query registrations |
+| S8 | **item 41 at teardown**, item 50 | teardown with **mutating** handlers, three legs, each asserting the FULL sequence over an identity-carrying fixture: **(A)** the LDtk unload sweep from the world-component Removed leg double-fires exactly as DefaultEcs was measured to (M5) — and in doing so **breaks both of S7's teardown orders**: the re-reported entities route through `DisposeEntity`, so pool-grouping collapses to per-entity and `ComponentRemoved` lands *after* `WorldComponentRemoved`; **(B)** the same sweep from the `EntityDisposed` leg, where the facade's per-entity guard terminates (unwinding in reverse carrier order, which only a sequence assert can see) and DefaultEcs does not; **(C)** item 41's *Create* half at teardown — newborns fire `Added` and are then freed silently, matching M5b |
+| S9 | item 50, D10's six `world.Dispose` sites | a handler that calls **`world.Dispose` from inside `world.Dispose`**: the nested call is a no-op, one event per entity, and the probe's depth cap is never reached. Without the guard the facade replayed the whole cascade (measured 3× on two carriers). Parity with M7, not an invention |
 
 ### Why it holds on an archetype backend (the three rules wave 2 inherits)
 
@@ -319,14 +382,18 @@ cd scratchpad/arch-spike/facade-events-proof && dotnet run -c Release   # exit c
    and fire **zero** times, because the raise sites are behind Arch's `EVENTS` build flag. A
    subscription silently never fires. H7's fallback option (b), "vendor Arch with `EVENTS`", therefore
    means building Arch from source, not flipping a package switch. D1 avoids that entirely.
-2. **Arch enumerates a chunk in DESCENDING index order** — both the chunk enumerator and the
-   `Query(desc, ForEach)` form (measured: entities created `0..5` enumerate `5,4,3,2,1,0`). Iteration
-   order under Arch is therefore not merely *unspecified*, it is **reversed** relative to DefaultEcs'
-   insertion-ish order. Every first-match-and-break pick (items 48, 58) flips, and so does every
-   membership sweep written to disk (`SceneWriter`, items 70, 74). The facade must impose its own
-   order; this proof sorts its unfiltered enumeration by entity id and keeps query membership in
-   publication order, which is what makes item 22's tie-break claim testable at all. See finding 8
-   for the third order, the one that is easy to miss.
+2. **Arch enumerates in DESCENDING index order**, on **both** iteration forms and **across chunks**.
+   Three probes, because the claim carries items 22/48/58/70/74 and each probe alone leaves a way
+   out: the chunk enumerator over 6 entities created `0..5` reports `5,4,3,2,1,0`; `world.Query(in
+   desc, ForEach)` — the form the facade's `EntitySystem` will actually run, a different code path —
+   reports the same; and a 4 000-entity sweep spanning several chunks is one descending run **end to
+   end**, identical on both forms. So the reversal is not a within-chunk artefact that averages out
+   over a whole-world sweep. Iteration order under Arch is therefore not merely *unspecified*, it is
+   **reversed** relative to DefaultEcs' insertion-ish order: every first-match-and-break pick (items
+   48, 58) flips, and every membership sweep written to disk (`SceneWriter`, items 70, 74) inverts.
+   The facade must impose its own order; this proof sorts its unfiltered enumeration by entity id and
+   keeps query membership in publication order, which is what makes item 22's tie-break claim
+   testable at all. See finding 8 for the two teardown orders, the ones that are easy to miss.
 3. **World singletons need no carrier entity.** Storing them off-world (a typed box per component
    type, exactly as DefaultEcs' world components are not entities) makes item 43's carrier-invisibility
    requirement true by construction — nothing can leak into an unfiltered `GetEntities()`, and no sweep
@@ -347,30 +414,55 @@ cd scratchpad/arch-spike/facade-events-proof && dotnet run -c Release   # exit c
    DefaultEcs firing a 10-event cascade on `world.Dispose`; this proof shows the facade reproducing it over
    Arch, in the same order. "Event-silent" would be a deliberate behaviour change, not parity — and C7
    byte-identity would fail.
-8. **The `ComponentRemoved` cascade has a THIRD facade-imposed order, and it is the one that
-   silently inherits Arch's.** `EntityDisposed` order is entity id (finding 2 covers that) and query
-   membership is publication order — but *which component of a multi-component entity reports first*
-   comes from `Archetype.Signature.Components`, i.e. from Arch's chunk layout, unless the facade
-   overrides it. `MiniFacade` mints a **facade-owned component-type id in registration order** (first
-   subscription or first `Set`/`Remove`/`NotifyChanged` of the type) and dispatches every Removed
-   cascade in ascending id — the same per-type registry D12's AOT registration needs anyway. Without
-   it, S7's asserted sequence would be a claim about Arch's archetype layout rather than about the
-   facade, and it would drift the moment a component's declaration order changed.
-9. **World teardown is pool-grouped, not per-entity, and a handler may still mutate during it.** The
-   measured DefaultEcs cascade walks one component *pool* across every carrier before moving to the
-   next (§2), which the obvious per-entity implementation gets wrong invisibly — every fixture where
-   each entity carries one subscribed type logs identically either way. The proof therefore uses
-   M4's own fixture, and S8 adds the case S6 and S7 both leave out: the engine's unload sweep firing
-   *inside* teardown. Two consequences wave 1 inherits — the cascade must liveness-check each entity
-   (a handler may already have disposed it, and reading a destroyed archetype is undefined), and the
-   whole dispatch must sit in a `try`/`finally`, or a throwing handler leaves a world that never
-   destroyed its Arch world and replays the entire cascade on the next `Dispose`.
+8. **The teardown cascade has TWO more facade-imposed orders, and both silently inherit something
+   else's.** `EntityDisposed` order is entity id (finding 2 covers that) and query membership is
+   publication order — but (a) *which component of a multi-component entity reports first* comes from
+   `Archetype.Signature.Components`, i.e. from Arch's chunk layout, and (b) *which world singleton
+   reports first* comes from `Dictionary` enumeration — BCL insertion order, stable in practice and
+   chosen by nothing — unless the facade overrides both. `MiniFacade` mints a **facade-owned
+   component-type id at subscription** (the moment the type's channel is created, and deliberately
+   not on an earlier `Set`/`Remove`/`NotifyChanged` — M4b's world D measured DefaultEcs doing exactly
+   that) and dispatches **both** legs in ascending id, from one registry shared by entity and world
+   components — the same per-type registry D12's AOT registration needs anyway. It is per-world by
+   design, because M4b measured DefaultEcs to be per-world and the engine builds one world per
+   screen. Without this, S7's asserted sequence would be a claim about Arch's archetype layout and
+   the BCL's hashing rather than about the facade, and it would drift the moment a component's
+   declaration order changed.
+9. **World teardown is pool-grouped, not per-entity — while every handler is inert. A handler that
+   mutates breaks both teardown orders, and the engine ships that handler.** The measured DefaultEcs
+   cascade walks one component *pool* across every carrier before moving to the next (§2), which the
+   obvious per-entity implementation gets wrong invisibly — every fixture where each entity carries
+   one subscribed type logs identically either way. The proof therefore uses M4's own fixture (S7).
+   **S8 then measures the scope of that claim**, with the engine's real unload sweep firing *inside*
+   teardown: the swept entities re-enter `DisposeEntity`, whose shape is per-entity, so pool-grouping
+   survives only for the walk-driven half and `ComponentRemoved` can fire *after*
+   `WorldComponentRemoved`. Wave 1 must therefore scope item 50's ordering clause to teardowns with
+   inert handlers — the engine runs the other shape at every screen change. Four further consequences
+   wave 1 inherits: the cascade must liveness-check each entity (a handler may already have disposed
+   it, and reading a destroyed archetype is undefined); it must re-read each carrier's component set
+   **at dispatch time**, never from a pre-cascade snapshot, because M5c measured DefaultEcs reporting
+   a component a handler `Set`s mid-cascade; the whole dispatch must sit in a `try`/`finally`, or a
+   throwing handler leaves a world that never destroyed its Arch world and replays the entire cascade
+   on the next `Dispose`; and the `try` alone does **not** bound re-entry — see finding 11.
 10. **Post-teardown reads are the facade's to define, because DefaultEcs' answer is a crash.** M6
     measured a live `EntitySet` after `world.Dispose`: stale `Count`, and `NullReferenceException` on
     enumeration. The facade drops membership and clears its subscription tables at teardown, so a
     held query reads empty and `SubscriberCount` is 0 (asserted in S7). Nothing in the engine reads a
     set after teardown — it would crash today — so defining the answer costs no behaviour and gives
     the screen-teardown obligation something executable to point at.
+11. **`world.Dispose` needs a re-entrancy flag set BEFORE the cascade, and it cannot be the
+    `_disposed` flag.** A handler that calls `world.Dispose` from inside the cascade passes a guard
+    that only flips in the `finally`, re-snapshots a still-live world and replays every event
+    (measured: 2 carriers, 6 `EntityDisposed`, bounded only by the probe's depth cap). It must be a
+    separate `_tearingDown` flag, because entities are required to read `IsAlive == true` inside
+    their own teardown handlers (S8 leg A) and `IsAlive` keys on `_disposed`. This is **parity**: M7
+    measured DefaultEcs guarding the same shape. Six engine sites call `world.Dispose`, so it is a
+    live shape, not a thought experiment (S9).
+12. **Entities created *during* teardown are cascade-silent, on both backends.** A handler that
+    spawns while the cascade is walking gets its `Added` and nothing more — the newborn is freed with
+    the world without an `EntityDisposed` or a `ComponentRemoved` (S8 leg C; DefaultEcs measured
+    identically in M5b). Item 41 is Dispose + Create + Publish, so its Create half now has a measured
+    answer at teardown and not only during play.
 
 ### What this proof deliberately does NOT cover
 
@@ -407,12 +499,14 @@ cd scratchpad/arch-spike/facade-events-proof && dotnet run -c Release   # exit c
 shared/ArchSpikeComponents.cs   component shapes (struct, second struct, zero-sized tag, managed class,
                                 plus `Doomed` — sacrificial, used only by the registry-reset probe)
 shared/ArchCoreUtilsShim.cs     the Arch 1.x -> 2.x namespace shim the AOT generator needs
-shared/ArchExercise.cs          the 32 checks both target proofs run, verbatim (incl. the H9/C12 probe)
+shared/ArchExercise.cs          the 33 checks both target proofs run, verbatim (incl. the H9/C12 probe
+                                and the enumeration of every static on Arch's World)
 aot-console/                    NativeAOT head  (exit code == proof)
 wasm-head/                      KNI/BlazorGL Blazor WASM head (document.title == proof)
 wasm-head/run-in-chrome.mjs     puppeteer-core driver against the SYSTEM Chrome
-defaultecs-measurements/        the DefaultEcs interrogation harness (items 42/66, plus M4/M5/M6 teardown)
+defaultecs-measurements/        the DefaultEcs interrogation harness (items 42/66, plus the teardown
+                                set M4/M4b/M4c/M5/M5b/M5c/M6/M7)
 facade-events-proof/            the H7/D1 proof: facade-fired events over Arch (items 3/41)
 facade-events-proof/MiniFacade.cs   the cut-down facade under test
-facade-events-proof/Scenarios.cs    the nine scenarios, 106 checks (exit code == failing checks)
+facade-events-proof/Scenarios.cs    the ten scenarios, 125 checks (exit code == failing checks)
 ```
