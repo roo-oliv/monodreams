@@ -118,3 +118,8 @@ scratchpad/kni-content-test/
 # MGCB stats file (build cruft)
 *.mgstats
 MonoDreams.Demos.Web/wwwroot/Content/
+
+# BenchmarkDotNet output. The benchmarks pin their artifacts path inside the project's bin/
+# (already ignored above); this covers the default location for anyone who runs the suite with a
+# different config or from another working directory.
+BenchmarkDotNet.Artifacts/

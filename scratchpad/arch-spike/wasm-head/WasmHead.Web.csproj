@@ -1,0 +1,80 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <!--
+    Wave-0 target proof (issue #119, contract item 2, WASM leg): Arch 2.1.0 compiles into, publishes
+    from, and RUNS inside a KNI/BlazorGL WebAssembly head.
+
+    The head is deliberately minimal — no canvas, no game loop, no root component. `scratchpad/blazor-spike/`
+    already proved that the MonoDreams render pipeline runs on BlazorGL; the open question this
+    wave has to answer is narrower and different: does the ECS backend survive the WASM runtime and
+    the Blazor publish trimmer, sitting next to the KNI backend in one bundle. So the head
+    references the real KNI/BlazorGL platform packages (same versions the blazor-spike captured and
+    `MonoDreams.Examples.Web` ships), touches KNI types so the trimmer cannot drop them, and then
+    runs the shared Arch exercise on startup, reporting into the DOM.
+
+    NAMING: the `.Web` suffix is load-bearing, not decoration. `Directory.Build.props` relocates
+    obj/bin to obj/web|bin/web for every project built with `-p:MonoDreamsPlatform=web` EXCEPT those
+    whose name ends in `.Web`, because Blazor's static-web-assets/_framework layout breaks when it
+    moves. Keeping the suffix is what lets this head be built with the contract's
+    `-p:MonoDreamsPlatform=web` form and with a plain build, identically.
+
+    Build / publish / run:
+      dotnet build   scratchpad/arch-spike/wasm-head/WasmHead.Web.csproj -c Release -p:MonoDreamsPlatform=web
+      dotnet publish scratchpad/arch-spike/wasm-head/WasmHead.Web.csproj -c Release   # trims by default
+      # then serve bin/Release/net8.0/publish/wwwroot with application/wasm MIME and open it.
+
+    Requires the `wasm-tools` workload. References Arch directly and nothing from MonoDreams: this
+    tree rides the `scratchpad/` allowlist entry of the wave-1 EcsBoundaryLintTests (plan D15).
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>MonoDreams.ArchSpike.WasmHead</RootNamespace>
+    <AssemblyName>WasmHead</AssemblyName>
+
+    <!-- Same BlazorGL selection the blazor-spike and MonoDreams.Examples.Web use. -->
+    <DefineConstants>$(DefineConstants);BLAZORGL</DefineConstants>
+    <KniPlatform>BlazorGL</KniPlatform>
+    <BlazorEnableTimeZoneSupport>false</BlazorEnableTimeZoneSupport>
+
+    <UseArchAotGenerator Condition="'$(UseArchAotGenerator)' == ''">true</UseArchAotGenerator>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(UseArchAotGenerator)' == 'true'">
+    <DefineConstants>$(DefineConstants);ARCH_AOT_GENERATOR</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Shared VERBATIM with the NativeAOT console head, so both target proofs run the same checks. -->
+    <Compile Include="../shared/ArchSpikeComponents.cs" Link="shared/ArchSpikeComponents.cs" />
+    <Compile Include="../shared/ArchCoreUtilsShim.cs" Link="shared/ArchCoreUtilsShim.cs" />
+    <Compile Include="../shared/ArchExercise.cs" Link="shared/ArchExercise.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Same pin as MonoDreams.Benchmarks and the AOT head (wave-0 decision: Arch 2.1.0). -->
+    <PackageReference Include="Arch" Version="2.1.0" />
+    <PackageReference Include="Arch.AOT.SourceGenerator" Version="1.0.1"
+                     Condition="'$(UseArchAotGenerator)' == 'true'"
+                     PrivateAssets="all" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- KNI/BlazorGL. The platform package pulls the 10 split nkast.Xna.Framework.* packages plus
+         the nkast.Wasm.* JS shims; the two framework packages are pinned explicitly because this
+         head references types from them directly (that reference is the point — it keeps the KNI
+         backend in the trimmed bundle Arch is being proven inside of). -->
+    <PackageReference Include="nkast.Kni.Platform.Blazor.GL" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework" Version="4.2.9001" />
+    <PackageReference Include="nkast.Xna.Framework.Game" Version="4.2.9001" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.11" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,8 @@
+# Throwaway spike build/run artifacts — never commit these.
+# (bin/ and obj/ are already covered repo-wide; the rest is spike-local.)
+**/bin/
+**/obj/
+**/publish/
+**/node_modules/
+package-lock.json
+*.log

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>ARCH-WASM BOOTING</title>
+    <base href="/" />
+    <style>
+        body { margin: 0; padding: 1.5rem; background: #1c1c20; color: #e8e6e3; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+        h1 { font-size: 15px; margin: 0 0 1rem; font-weight: 600; }
+        #status { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 3px; background: #45454d; }
+        #status[data-state="pass"] { background: #1f6f3f; }
+        #status[data-state="fail"] { background: #8a2c2c; }
+        pre { white-space: pre-wrap; margin: 1rem 0 0; }
+    </style>
+</head>
+<body>
+    <!--
+        Wave-0 Arch target proof, WASM leg (issue #119, contract item 2).
+
+        No <div id="app"> and no blazor error UI: this head registers no root component, it just
+        boots the .NET WASM runtime so Program.Main can run the shared Arch exercise. The page is
+        the report surface — an automated driver reads document.title (ARCH-WASM PASS / FAIL) and
+        dumps #report.
+    -->
+    <h1>Arch 2.1.0 in a KNI/BlazorGL WebAssembly head — <span id="status" data-state="booting">booting…</span></h1>
+    <pre id="report">waiting for the .NET WebAssembly runtime…</pre>
+
+    <script>
+        // Called from Program.Main once the exercise has run. Kept deliberately dumb: the proof is
+        // what .NET put in the text, not anything this page computes.
+        window.spikeReport = function (failures, text) {
+            const passed = failures === 0;
+            document.title = passed ? 'ARCH-WASM PASS' : 'ARCH-WASM FAIL';
+            const status = document.getElementById('status');
+            status.textContent = passed ? 'PASS' : failures + ' check(s) FAILED';
+            status.dataset.state = passed ? 'pass' : 'fail';
+            document.getElementById('report').textContent = text;
+        };
+
+        window.addEventListener('error', function (e) {
+            document.title = 'ARCH-WASM FAIL';
+            document.getElementById('report').textContent = 'unhandled page error: ' + (e.error ? e.error.stack : e.message);
+        });
+    </script>
+    <script src="_framework/blazor.webassembly.js"></script>
+</body>
+</html>
