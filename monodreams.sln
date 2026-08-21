@@ -29,6 +29,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Demos.Web", "Mon
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Web.Hosting", "MonoDreams.Web.Hosting\MonoDreams.Web.Hosting.csproj", "{AA162B80-6CDE-41B3-85D8-6E930B15A2AD}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDreams.Benchmarks", "MonoDreams.Benchmarks\MonoDreams.Benchmarks.csproj", "{B7F4374E-2D9E-41FB-8CE6-47939BE47CE1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +71,10 @@ Global
 		{3FA378FD-3A91-490E-BC4E-02C20B126B05}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AA162B80-6CDE-41B3-85D8-6E930B15A2AD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{AA162B80-6CDE-41B3-85D8-6E930B15A2AD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B7F4374E-2D9E-41FB-8CE6-47939BE47CE1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B7F4374E-2D9E-41FB-8CE6-47939BE47CE1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B7F4374E-2D9E-41FB-8CE6-47939BE47CE1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B7F4374E-2D9E-41FB-8CE6-47939BE47CE1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{E2A92394-1D8C-451C-8A84-5627BA5E5E61} = {621C9686-DD80-42A1-8F12-9E4F5CBA588F}

@@ -735,8 +735,12 @@ public class PhysicsDemoScreen : IGameScreen
         _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
             _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game,
             session: _session, projectContext: _projectContext, sceneId: BoundSceneId);
-        // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
-        if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
+        // The injected editor-op cursor must survive the hardware read (Wave 5 seam) — and so must the
+        // KEYBOARD: R/Space/G/F/Escape read it every Play frame, so a key held during one of two runs is
+        // a byte diff (see DemoKeyboard). This screen is excluded from the byte-identity precheck for
+        // its unseeded RNG, but the protocol is the screens' contract, not the precheck's list.
+        if (_editor?.Overlay.HasEditorOpPlan == true)
+            DemoKeyboard.Engage(DemoScreens.Physics, cursorInputSystem, _editor.Keys);
 
         // ---- Weave the update pipeline through the registrar. With the editor off every gate
         // is a pass-through in Play and the order matches the pre-editor screen exactly. ----
@@ -765,7 +769,9 @@ public class PhysicsDemoScreen : IGameScreen
         p.AddGroup("ui.interaction", EditTimeBehavior.Freeze, g =>
         {
             g.Add("buttons", new DemoButtonInteractionSystem(_world));
-            g.Add("textInput", new TextInputSystem(_world));
+            // The engine's own keyboard seam, routed through the demos' gate so the protocol covers
+            // typing too (a held letter would otherwise land in a focused field in one run only).
+            g.Add("textInput", new TextInputSystem(_world) { KeyboardStateProvider = DemoKeyboard.Read });
             g.Add("toggles", new ToggleSwitchSystem(_world));
         });
         // Reference physics pipeline order (per docs/CORE_TENETS.md §5):
@@ -936,13 +942,13 @@ public class PhysicsDemoInputSystem : ISystem<GameState>
     public PhysicsDemoInputSystem(PhysicsDemoScreen screen)
     {
         _screen = screen;
-        _previous = Keyboard.GetState();
+        _previous = DemoKeyboard.Read();
     }
 
     public void Update(GameState state)
     {
         if (!IsEnabled) return;
-        var current = Keyboard.GetState();
+        var current = DemoKeyboard.Read();
         bool Pressed(Keys k) => current.IsKeyDown(k) && !_previous.IsKeyDown(k);
 
         if (Pressed(Keys.R)) _screen.Reset();

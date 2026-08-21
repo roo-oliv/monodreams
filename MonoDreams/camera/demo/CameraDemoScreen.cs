@@ -924,8 +924,11 @@ public class CameraDemoScreen : IGameScreen
         _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
             _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game,
             session: _session, projectContext: _projectContext, sceneId: BoundSceneId);
-        // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
-        if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
+        // The injected editor-op cursor must survive the hardware read (Wave 5 seam) — and so must the
+        // KEYBOARD: this screen's ball movement and mode shortcuts read it every Play frame, so a key
+        // held during one of two runs is a byte diff (see DemoKeyboard).
+        if (_editor?.Overlay.HasEditorOpPlan == true)
+            DemoKeyboard.Engage(DemoScreens.Camera, cursorInputSystem, _editor.Keys);
 
         // ---- Weave the update pipeline through the registrar. With the editor off every gate
         // is a pass-through in Play and the order matches the pre-editor screen exactly. ----
@@ -1107,7 +1110,7 @@ public class PlayerBallMovementSystem : AEntitySetSystem<GameState>
 
     protected override void Update(GameState state, in Entity entity)
     {
-        var keyboard = Keyboard.GetState();
+        var keyboard = DemoKeyboard.Read();
         var dir = Vector2.Zero;
         if (keyboard.IsKeyDown(Keys.A) || keyboard.IsKeyDown(Keys.Left))  dir.X -= 1f;
         if (keyboard.IsKeyDown(Keys.D) || keyboard.IsKeyDown(Keys.Right)) dir.X += 1f;
@@ -1135,13 +1138,13 @@ public class CameraDemoInputSystem : ISystem<GameState>
     public CameraDemoInputSystem(CameraDemoScreen screen)
     {
         _screen = screen;
-        _previous = Keyboard.GetState();
+        _previous = DemoKeyboard.Read();
     }
 
     public void Update(GameState state)
     {
         if (!IsEnabled) return;
-        var current = Keyboard.GetState();
+        var current = DemoKeyboard.Read();
         bool Pressed(Keys k) => current.IsKeyDown(k) && !_previous.IsKeyDown(k);
 
         if (Pressed(Keys.D0) || Pressed(Keys.NumPad0)) _screen.SetMode(CameraDemoScreen.Mode.Follow);
@@ -1299,10 +1302,19 @@ public class CameraHitSystem : ISystem<GameState>
     // Trauma drains linearly to zero in 1 / TraumaDecayPerSecond seconds (~0.4s here),
     // so each hit is a brief burst rather than a sustained rumble.
     private const float TraumaDecayPerSecond = 2.5f;
+    // Any constant would do — what matters is that the jitter sequence is the SAME in every
+    // process. The shake's look is unchanged (still a fresh pseudo-random direction per frame),
+    // but two runs of the camera demo that take the same hits produce the same offsets, so the
+    // headless byte-identity precheck (MonoDreams.Tests DeterministicClockTests) keeps holding
+    // once the dot actually enters the right square — a keyboard press during a headless run, or
+    // an op plan that moves the dot, is enough to wake this RNG. Unlike the physics demo's RNG
+    // this one decides no scene CONTENT, only a transient sub-frame jolt, so pinning it costs
+    // nothing a player can see.
+    private const int ShakeJitterSeed = 7;
 
     private readonly MonoDreams.Component.Camera _camera;
     private readonly CameraDemoScreen _screen;
-    private readonly Random _rng = new();
+    private readonly Random _rng = new(ShakeJitterSeed);
 
     private float _shakeTrauma;     // right square
     private float _rotateTrauma;    // left square

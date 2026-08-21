@@ -154,10 +154,14 @@ host calls it on chosen frames so a captured frame is guaranteed flushed
 to disk before the process exits.
 
 **Why:** the async `Update` path can drop its final save when the process
-exits immediately after (the `Task.Run` write never lands), and its
-time-interval gate is non-deterministic under a variable headless frame
-rate. A frame-driven, synchronous capture is what makes
-"`--frames N --exit` always produces a PNG" hold.
+exits immediately after (the `Task.Run` write never lands) — a race no
+caller can order. Its time-interval gate accumulates `state.Time`, i.e.
+the SIMULATED delta, so which frames it selects follows whatever clock
+the host feeds: on a wallclock-dt host (a headless Examples run, which
+has no injected clock) the selection varies run to run, while on headless
+Demos the injected fixed-step clock makes it count simulated seconds and
+land on the same frames every run. A frame-driven, synchronous capture is
+what makes "`--frames N --exit` always produces a PNG" hold under either.
 **Breaks:** routing the headless capture through the async/interval path
 reintroduces dropped final frames and timing-dependent flakes — the test
 that asserts a non-blank PNG exists fails intermittently.
@@ -172,7 +176,10 @@ backbuffer".
 only code in the repo that reads `MONODREAMS_SCREENSHOT`,
 `MONODREAMS_SCREENSHOT_INTERVAL`, `MONODREAMS_SCREENSHOT_MAX_FRAMES`, or
 `MONODREAMS_SCREENSHOT_TARGET`. It maps the whole protocol — mode (`1`/`png` →
-`CaptureFormat.Png` at 0.5s; `raw`/`rgba` → `CaptureFormat.Raw` every frame;
+`CaptureFormat.Png` at 0.5s of GAME time — the interval accumulates
+`state.Time`, so it counts simulated seconds off whatever clock the host feeds,
+which on headless Demos is the injected fixed step and elsewhere is the
+wallclock delta; `raw`/`rgba` → `CaptureFormat.Raw` every frame;
 `0`/`off`/unset → nothing; anything else → `Logger.Error` + nothing), the
 invariant-culture interval override, the frame cap, and the capture source
 (unset/`window` → the backbuffer; a `RenderTargetID` **name**, case-insensitive →
@@ -358,6 +365,200 @@ behaviour — the leak class #27 documents becomes unobservable again.
 "Rendering systems run last in the pipeline"; foundation — "`WindowFit` is
 opt-in, and it is the ONLY thing allowed to size a game's window" (the same
 `SdlNative` seam this hide path resolves through).
+
+## Headless Demos advance a deterministic fixed-step clock
+
+Under `--headless` the Demos host never hands the pipeline MonoGame's own
+`GameTime`. It advances an injected fixed-step clock
+(`MonoDreams.Demos.HeadlessClock`) exactly once per `Update`, and `Draw` reads
+the instant that `Update` advanced to rather than advancing again — the clock
+ticks once per frame, never twice. The step is a constant
+`Game.TargetElapsedTime` (1/60 s, the rate the windowed path runs at), and
+`TotalGameTime` is recomputed from the frame COUNT (`step.Ticks * frames`,
+integer arithmetic) instead of accumulated, so it carries no rounding drift:
+frame N reports the same instant in every run. The host logs which clock
+produced the run (`Headless clock: deterministic fixed step …`). This changes
+the SIMULATED delta only, not the host's pacing: `IsFixedTimeStep` stays
+`false` and VSync stays off, so the max-speed contract of the premise above is
+intact — frames are still produced as fast as the machine can — and the
+windowed path never constructs the clock, receiving MonoGame's `GameTime`
+unchanged.
+
+The clock makes a run's TIME deterministic; it does not by itself make its
+PIXELS deterministic. A bare headless run still reads the hardware mouse
+(`CursorInputSystem` without `SkipHardwareRead`), whose window-relative
+position varies per launch; it still reads the hardware KEYBOARD, and the
+headless window is hidden best-effort (an SDL hide plus a macOS-only
+focus-steal hint), so a key held while a run happens to own focus moves the
+camera demo's ball, advances the dialogue or types into the UI demo's text
+field in that run only; and the physics demo still builds its scene from an
+unseeded `Random`. Byte-identical captures therefore additionally require the
+deterministic-input protocol the precheck below uses — an editor op plan
+present (which is what engages it) plus final-frame-only capture — and any
+pixel-identity gate must be stated under that protocol, never over a bare run.
+
+The protocol has **two hardware legs, and both are pinned at one seam**.
+`DemoKeyboard.Engage` (the Demos host) is called by every demo screen under
+the same condition as the cursor line — `Overlay.HasEditorOpPlan` — and it
+sets `CursorInputSystem.SkipHardwareRead` (the mouse), flips the shared
+`DemoKeyboard.Read` gate that every demo screen's keyboard reader goes
+through, and sets `SkipHardwareRead` on each `AKeyboardInputHandlingSystem`
+in the screen (the demo's own action mapper and the editor's key surface).
+The **editor overlay's own keyboard readers** are on the same gate, but not
+through `Engage`: they are constructed with it. `EditorOverlay` takes one
+`readKeyboard` seam and threads it to all six (both panels, the dialog, the
+context menu, the modal transform, the shortcut chord tracker), and
+`DemoEditor` passes `DemoKeyboard.Read` — because the editor flag is what the
+protocol turns ON, those six run `RunNormally` in every precheck run and are
+inert only while no editor UI is open. "Today's op plan opens no panel" is not
+a property the protocol may rest on: one cursor op over the chrome plus a held
+chord key is a byte diff in one run of two. Off the protocol `readKeyboard`
+resolves to `Keyboard.GetState` exactly as before, so a windowed demo is
+unchanged. Engaging is **observable**: the run logs
+`Deterministic input: hardware reads skipped on '<screen>'`, the precheck
+asserts that line, and a lint forbids `Keyboard.GetState()` / `Mouse.GetState()`
+in any scanned demo source except the seam file itself, requires an engine
+reader whose seam DEFAULTS to the hardware to be constructed with one
+(`TextInputSystem.KeyboardStateProvider`, `KeyChordTracker`'s seam argument,
+`EditorOverlay`'s `readKeyboard` — six readers behind one argument), and
+requires every `AKeyboardInputHandlingSystem` subclass a screen constructs
+to reach `Engage`'s argument list — `Engage` logs its line whether or not a
+given system was handed to it, so the run-time assertion alone cannot see an
+omission. Three properties make that lint the guarantee it reads as, each of
+which was once absent while the sentence above was already written. It matches
+the argument's **value**, not its presence: a second `KeyChordTracker` argument
+that is `null`, or an `EditorOverlay` given `readKeyboard: Keyboard.GetState`,
+defaults exactly as an omission does. Its subclass set is seeded from the
+**engine's** declarations as well as the demos': `DefaultEditorKeys` is declared
+in `level-editor` and constructed by `DemoEditor`, so a set built from
+demo-declared subclasses alone never checked the editor key surface at all. And
+the seam file's exemption is **one gated read, not a waiver for the file**: that
+file must hold exactly one `Keyboard.GetState()`, on the `SkipHardwareRead` gate
+line, and no `Mouse.GetState()`. Losing a leg is therefore a red test rather
+than an intermittent byte diff blamed on the change under test.
+
+The precheck's scope is itself pinned. Every screen the host can boot is
+either run by the precheck or named — with the reason it cannot be — in the
+precheck's own exclusion list, and a test compares that pair against the
+host's screen registry. So "the demos are byte-reproducible" always says how
+many screens it covers, and a screen added later (or dropped from the run
+list) fails loudly instead of narrowing the claim in silence. Today the one
+exclusion is the physics demo's unseeded `Random`, its cause is recorded as a
+typed `ExclusionCause` rather than a sentence (so rewording the entry cannot
+disable the converse check that reads it), and that "one" is checked rather
+than believed: a second test scans every `.cs` file of every covered screen's
+demo DIRECTORY (not one file per screen — a demo split in two would leave half
+unscanned) PLUS the demo-owned sources every screen composes —
+`MonoDreams.Demos/UI` and the host root (`Game1`, `DemoKeyboard`, `DemoEditor`,
+the headless clock) — and fails on a value the next run will not reproduce,
+even when nothing currently consumes it. That root list is **enumerated, not
+trusted**: every top-level directory of the demos host holding C# source must
+lie inside a root a COVERED screen's scan reads, so a new
+`MonoDreams.Demos/Systems/` (or a `ShapeBuilder` moved out of `UI/`) cannot be
+scanned by nothing while the tests stay green.
+
+The census resolves names at the **set's** scope, not one file's, and each kind
+of name on its own terms. A `Random`-typed member declared in one scanned file
+and target-typed-constructed from another (`ShapeBuilder.Jitter = new();`) is an
+RNG in both — a per-file name set sees one in neither. A seed CONSTANT resolves
+qualified across the set and bare only within the file that uses it, which is
+how C# resolves it: pooling bare names would accept `new Random(Seed)` because
+an unrelated file declares a `const int Seed` while the local `Seed` is computed
+at runtime, and a qualified name binds to the type that DECLARES it, so `B.Seed`
+does not resolve against sibling class `A`'s constant. RNGs are matched on the
+type, not on one syntactic shape: `new Random()`, `Random.Shared`, a
+target-typed `new()` reaching a `Random` in any of its shapes (nullable,
+constructor body, property initialiser, `??=`, expression body, collection
+expression — including the multi-line forms, since the type is read from the
+enclosing STATEMENT and not from one line), and any seed that
+is not a compile-time integer constant — an `Environment.TickCount` seed is no
+better than none, and a seed qualified by a type the scan never saw declared is
+not resolvable and counts as unpinned. The census is not RNG-only: reading the
+wallclock (`DateTime.Now`, `Stopwatch.GetTimestamp()`/`StartNew()`, an instance
+stopwatch's `.Elapsed`, `TimeProvider`), per-process identity (`Guid.NewGuid()`,
+`Environment.TickCount`/`ProcessId`/`CurrentManagedThreadId`) or the
+per-process-randomised `GetHashCode()` makes scene content per-process in
+exactly the same way and fails the same test. A dormant source (the camera demo's hit-shake
+jitter, seeded since) reds a later run the moment an op plan reaches it, while
+every record still names physics. Seeding an excluded screen without widening
+the covered set fails the same test from the other side. The claim's scope is
+exactly that: the sources the demos OWN. The engine systems a demo composes are
+outside it — they carry no RNG today, and a lint covering them belongs to the
+engine, not to this precheck.
+
+**Why:** the whole point of the headless Demos path (issue #28) is to let an
+agent verify its own work without a human, which requires that re-running the
+same scene produce the same output. With the wallclock dt MonoGame hands a
+max-speed host, `GameState.Time`/`TotalTime`, the `[GT …]` stamp on every log
+line, the `gt=` field of a screenshot filename and anything integrating over dt
+all differ between two runs of the same demo, so "did my change alter the
+output?" was unanswerable in principle. The ECS-backend migration's
+screenshot-identity gate (issue #119) rests on this precheck.
+**Breaks:** passing the host `GameTime` through in headless returns every
+derived value to the wallclock and turns screenshot/log comparison into a
+measurement of machine load; advancing the clock in `Draw` too doubles its rate
+and makes the drawn frame report a different instant than the `Update` it
+follows; accumulating `TotalGameTime` (`total += step`) reintroduces drift, so a
+frame's instant depends on the path taken to it; extending the clock to the
+windowed path would change the player-visible game to serve a testing aid;
+throttling the host to the step would break the max-speed contract (a 600-frame
+run would cost ten wall-clock seconds); and a demo screen that reads the
+hardware directly (either `Keyboard.GetState()` or a cursor pipeline it never
+engages) reopens the input leg — every run stays green on a machine with no key
+held, so the byte-identity claim quietly becomes conditional on the developer's
+hands and the first red run is blamed on the change under test.
+**Tests:** `MonoDreams.Tests/IntegrationTests/HeadlessClockTests.cs` — one test
+pins the fixed step against the wallclock (game time between two heap samples is
+exactly the frame gap × the step), one pins run-to-run determinism (two runs
+observe an identical printed game-time series), and
+`HeadlessClock_IsConstructedOnlyOnTheHeadlessBranch_AndTheWindowedPathFallsBackToGameTime`
+source-scans `Game1.cs` for the headless-only half — which has no runtime
+observable, because every test spawns `--headless` — pinning the single
+construction site inside the constructor's `if (_headless.Enabled)` branch and
+the `?? gameTime` fallback at both read sites;
+`MonoDreams.Tests/IntegrationTests/DeterministicClockTests.cs`
+(`Demo_RunTwiceHeadless_ProducesByteIdenticalPngs`) carries it to pixels — five
+demo screens, each run twice under the deterministic-input protocol, compared
+byte for byte via `GameTestRunner.AssertScreenshotsByteIdentical`, each run
+asserting the protocol's own `Deterministic input: hardware reads skipped` line;
+`Precheck_CoversEveryDemoScreen_OrNamesTheExclusionAndWhy` in the same file
+holds the scope, failing when a registered demo screen is neither run nor
+excluded-with-a-reason (and cross-checking the registry against `Game1`'s
+`RegisterScreen` call sites, so a screen registered from a raw literal cannot be
+bootable-but-unscanned);
+`Precheck_CoveredScreensPinEveryNondeterministicSource_AndTheExclusionReasonStillHolds`
+holds the exclusion's content, failing on an unpinned `Random` or entropy read
+in a covered screen's scanned sources (dormant included) or on an excluded
+screen whose OWN sources — the shared roots excluded, since they belong to every
+screen alike — no longer justify its typed cause;
+`Precheck_ScansEveryDirectoryOfTheDemosHost` holds the root list against the
+host's directory tree;
+`NondeterminismCensus_MatchesOnTheType_NotOnOneSyntacticShape` and
+`NondeterminismCensus_ResolvesNamesAcrossTheScannedSet_WithoutPoolingBareOnes`
+are the census's own contract, pinning both directions on synthetic sources —
+single-file (each escaping shape must be caught; each properly pinned seed must
+not be flagged) and cross-file (a `Random` declared in a sibling source and
+constructed here is caught; a bare seed name is NOT resolved by a sibling's
+constant, and a qualified one is not resolved by a sibling TYPE); and
+`Precheck_EveryDemoScreenRoutesHardwareInputThroughTheProtocol` holds the input
+legs, failing on a direct `Keyboard.GetState()`/`Mouse.GetState()` outside the
+seam file, on a seam file that holds more than the one gated read (or any mouse
+read), on a `TextInputSystem`/`KeyChordTracker`/`EditorOverlay` built without the
+demos' gate as its seam VALUE, on an `AKeyboardInputHandlingSystem` subclass the
+screen constructs but never hands to `Engage` (engine-declared subclasses
+included — `DefaultEditorKeys`), or on a screen that builds a cursor pipeline
+without calling `DemoKeyboard.Engage`.
+**Depends on:** "Headless Demos renders every frame; capture reads the
+backbuffer" (there are pixels to compare only because `Draw` is not a no-op);
+"Headless heap samples measure the live set, not transient churn" (the `Heap
+sample:` line is what makes the clock readable from outside the process);
+cursor — "`SkipDerivation` lets an injection channel own the cursor's derived
+positions" (the `SkipHardwareRead` half of the input protocol); level-editor —
+"The overlay reads the keyboard at ONE injected seam; the per-system default is
+the hardware" (the editor half of the keyboard leg, which the protocol turns on
+by requiring the editor run flag); foundation —
+"A suppressed `Logger` line costs nothing, and an emitted one is
+byte-identical" (the `[GT …]` stamp the clock feeds).
 
 ## Headless heap samples measure the live set, not transient churn
 

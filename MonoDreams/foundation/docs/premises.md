@@ -496,6 +496,19 @@ reproducible rather than random (`MONODREAMS_TEST_SEED` shuffles deliberately,
 `MONODREAMS_TEST_LAST` forces a class to run last — both replayable). **A new process-wide
 mutable must be added to `ProcessWideState` in the PR that introduces it.**
 
+`ProcessWideState` resets one mutable the engine does not own: DefaultEcs's `static`
+query-filter memo cache (`DefaultEcs.Internal.EntityQueryFilterFactory._filters`, reached by
+reflection). That cache is keyed by a flattened string, and `ComponentEnum.ToString()` renders
+the raw `uint[]` bitset as UTF-16 — so a component flag on bit 5 or 21 of a word renders as the
+literal `' '` used as the key separator, and two different rules can collide on one key. The
+loser silently runs on the winner's predicate and its `EntitySet` matches nothing. Which pair
+collides depends on the global `ComponentFlag` assignment order, hence on class order — so the
+defect presents exactly like a leaked socket, and is confined the same way: emptying the cache
+after every test keeps a poisoned key inside the test that built it. The cache is a pure memo
+(every entry is rebuildable from the query that asked for it), so clearing it is free of
+meaning; the collision itself is upstream (present in 0.17.2, 0.18.0-beta01 and upstream
+master) and only a library fix — an impossible separator, or a non-string key — removes it.
+
 **Why:** issue #114 — a full-suite Release run failed 32 tests, three consecutive runs of the
 same tree were green, and every named failure passed in isolation. That signature (a victim
 chosen by the run's hash seed) costs hours per sighting because the failing test is never the
@@ -504,7 +517,10 @@ pinning the order makes whatever order-dependence remains reproducible instead o
 that ordering knob is what turned #114's ghost into a seed that fails the same way every time.
 (The failure that seed exposed turned out to live one layer down, in a corrupted DefaultEcs
 `EntitySet`, not in a socket — which is precisely why the sockets had to be ruled out
-structurally rather than by inspection.)
+structurally rather than by inspection. Its root cause is now named: the colliding key in
+DefaultEcs's query-filter cache described above, found from `MONODREAMS_TEST_SEED=8`, where
+`EditorStatusBarSystemTests` read `0 entities` from a `With<Transform>().Without<
+EditorInfrastructure>()` set holding one.)
 **Breaks:** a leaked `Logger.LineSink` keeps a dead object receiving every line for the rest of
 the process; a raised `Logger.MinimumLevel` silently suppresses every later test's log
 assertions (and skips the interpolation holes behind them); a leaked `PlatformServices.Current`
@@ -514,6 +530,9 @@ sometimes.
 **Tests:** `MonoDreams.Tests/Foundation/ProcessWideStateHygieneTests.cs` — one test leaks every
 socket and the next asserts it starts from the shipped defaults; it fails (naming what leaked)
 when the guard is switched off with `MONODREAMS_TEST_NO_RESET=1`.
+`MonoDreams.Tests/Foundation/EcsQueryFilterCacheTests.cs` — asserts the DefaultEcs cache is
+still reachable by reflection (a library upgrade that renames the field would turn the clear
+into a silent no-op) and that `ProcessWideState.Reset()` empties it.
 **Depends on:** "`Logger.LineSink` is a single-owner tap that must not log"; "`GatedSystem`'s
 timing sink keeps the profiler out of foundation"; "Engine source is backend/OS-agnostic —
 non-portable calls go through `IPlatformServices`"; rendering — "A render pass publishes its

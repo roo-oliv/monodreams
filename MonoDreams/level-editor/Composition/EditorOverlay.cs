@@ -9,6 +9,7 @@ using DefaultEcs.System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
 using MonoDreams.Component;
 using MonoDreams.Component.Cursor;
 using MonoDreams.Component.Draw;
@@ -149,6 +150,13 @@ public sealed class EditorOverlay
     /// <c>&lt;sceneId&gt;.mdscene</c>); null (the default) derives it from the manifest's
     /// <see cref="GameProject.StartScene"/>, or <see cref="DefaultSceneId"/> when there is none (see
     /// <see cref="ResolveSceneId"/>). A rename / new-scene UI is deferred — PS3 ships the default only.
+    /// <paramref name="readKeyboard"/> is the overlay's ONE keyboard seam: the panels (filter + inline
+    /// edit), the dialog, the context menu, the modal transform and the shortcut chord tracker all read
+    /// through it. Null (the default) leaves each system on <see cref="Keyboard.GetState"/> — the
+    /// windowed behaviour. A host that pins hardware input for a deterministic run passes its gate here
+    /// (the demos pass <c>DemoKeyboard.Read</c>), because these six readers are woven
+    /// <c>RunNormally</c>: they are inert only while no editor UI is open, so a run that opens a panel
+    /// or a menu would otherwise still be reading the developer's keyboard.
     /// </summary>
     public EditorOverlay(
         World world,
@@ -172,7 +180,8 @@ public sealed class EditorOverlay
         EditorSession? session = null,
         FileAssetTextureLoader? assetTextures = null,
         Func<MonoDreams.Component.Level.TileGridComponent>? createTileGrid = null,
-        Action<Entity, MonoDreams.Component.Level.TilePaintValue>? configureTileCollider = null)
+        Action<Entity, MonoDreams.Component.Level.TilePaintValue>? configureTileCollider = null,
+        Func<KeyboardState>? readKeyboard = null)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
@@ -454,6 +463,7 @@ public sealed class EditorOverlay
                 : History.IsDirty,
             role: EditorPanelRole.LeftTabs,
             panelState: panelState,
+            getKeyboardState: readKeyboard,
             // PF-F: hide screen KeepAlive infrastructure from the Entities tree in a prefab context.
             isScreenInfrastructure: Transport.IsScreenInfrastructure);
         SystemsPanel = _leftPanel;
@@ -464,7 +474,7 @@ public sealed class EditorOverlay
         // through undoable commands), and reads the keyboard for its filter + inline edit fields.
         _inspectorPanel = new EditorPanelSystem(world, viewportManager, toolbarFont,
             shellState: _shellState, role: EditorPanelRole.RightInspector, panelState: panelState,
-            history: History, registry: Registry);
+            history: History, registry: Registry, getKeyboardState: readKeyboard);
         Inspector = _inspectorPanel;
         Shell = new EditorShellSystem(world, viewportManager, Chrome, setOsCursorVisible, _shellState);
         ChromeRender = new EditorChromeRenderSystem(spriteBatch, graphicsDevice, world, viewportManager);
@@ -483,6 +493,7 @@ public sealed class EditorOverlay
             onSaveScene: SaveCurrentScene,
             onSaveProject: SaveProject,
             onSaveBackup: SaveBackupAs,
+            getKeyboardState: readKeyboard,
             // Create Empty Scene (UX2-D §4): the collision predicate (loud refuse + keep open) and the
             // create callback (write the minimal canonical scene + bundle + dirty-gated switch).
             onSceneNameExists: SceneNameExists,
@@ -495,6 +506,7 @@ public sealed class EditorOverlay
         // game-agnostic).
         _menu = new EditorContextMenuSystem(
             world, viewportManager, toolbarFont, DispatchMenuAction,
+            getKeyboardState: readKeyboard,
             isBlocked: () => Dialog.IsOpen || _shellState.IsDragging);
         Menu = _menu;
 
@@ -503,7 +515,7 @@ public sealed class EditorOverlay
         // same coalescing history. It owns the pointer + keyboard while active (its own keyboard seam +
         // the consume + the ShouldSuppressInput/shortcut-gate ORs). Constructed before the shortcut
         // system so the gate can read Modal.IsActive.
-        _modal = new ModalTransformSystem(world, camera, History);
+        _modal = new ModalTransformSystem(world, camera, History, getKeyboardState: readKeyboard);
 
         // The editor shortcut owner (UX3-E): reads the ONE EditorShortcuts chord table off the raw
         // keyboard, gated by ViewportShortcutContext (over the viewport, no dialog/menu/modal open,
@@ -520,6 +532,7 @@ public sealed class EditorOverlay
             dialogOpen: () => Dialog.IsOpen || RulesEditor.IsOpen,
             menuOpen: () => Menu.IsOpen,
             commandIsMeta: OperatingSystem.IsMacOS(),
+            getKeyboardState: readKeyboard,
             modalActive: () => _modal.IsActive,
             // PF-A: while the Inspector filter is focused or a member is being inline-edited, no editor
             // chord fires (typing g/s/r/Delete/a name in a field must not fire a shortcut).

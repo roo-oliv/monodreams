@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- BenchmarkDotNet refuses to run a non-optimized build; Release is the only supported mode. -->
+    <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
+  </PropertyGroup>
+
+  <!--
+    The ONLY project in the repo that references both ECS backends on purpose: it exists to compare
+    them head to head (issue #119 wave 0). Every other project talks to exactly one backend, and
+    from wave 1 on, only through MonoDreams.Ecs — the boundary lint test that lands with the facade
+    allowlists this project for both `DefaultEcs` and `Arch.` references.
+
+    No reference to MonoDreams itself: the engine drags in MonoGame + the content pipeline, which
+    would put GraphicsDevice-shaped setup between the benchmark and the ECS call it measures. The
+    component shapes under test are mirrored locally instead (see Components.cs).
+  -->
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+    <PackageReference Include="DefaultEcs" Version="0.18.0-beta01" />
+    <PackageReference Include="Arch" Version="2.1.0" />
+  </ItemGroup>
+
+</Project>

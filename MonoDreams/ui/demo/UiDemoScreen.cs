@@ -1627,8 +1627,11 @@ public class UiDemoScreen : IGameScreen
         _editor = DemoEditor.TryCreate(_editorEnabled, _world, _camera, _layers, _content,
             _graphicsDevice, _spriteBatch, _viewportManager, () => _screenController?.Game,
             session: _session, projectContext: _projectContext, sceneId: BoundSceneId);
-        // The injected editor-op cursor must survive the hardware read (Wave 5 seam).
-        if (_editor?.Overlay.HasEditorOpPlan == true) cursorInputSystem.SkipHardwareRead = true;
+        // The injected editor-op cursor must survive the hardware read (Wave 5 seam) — and so must the
+        // KEYBOARD: focus nav, the text fields and the Escape shortcut all read it every Play frame, so
+        // a key held during one of two runs is a byte diff (see DemoKeyboard).
+        if (_editor?.Overlay.HasEditorOpPlan == true)
+            DemoKeyboard.Engage(DemoScreens.Ui, cursorInputSystem, _editor.Keys);
 
         // ---- Weave the update pipeline through the registrar. With the editor off every gate
         // is a pass-through in Play and the order matches the pre-editor screen exactly. ----
@@ -1670,7 +1673,9 @@ public class UiDemoScreen : IGameScreen
                 _world, _up, _down, _left, _right, _next, _prev, _activate, ComputeActiveGroup));
             g.Add("buttonVisuals", new ButtonVisualSystem(_world, _theme));
             g.Add("toggles", new ToggleSwitchSystem(_world));
-            g.Add("textInput", new TextInputSystem(_world));
+            // The engine's own keyboard seam, routed through the demos' gate so the protocol covers
+            // typing too (a held letter would otherwise land in a focused field in one run only).
+            g.Add("textInput", new TextInputSystem(_world) { KeyboardStateProvider = DemoKeyboard.Read });
             g.Add("tabs", new TabSystem(_world));
             g.Add("tick", new UiDemoTickSystem(this)); // sets ScrollViewComponent.Enabled before ScrollViewSystem reads it
             // Exclusive panel groups: AFTER the tick that writes each group's active member and
@@ -1821,7 +1826,7 @@ public sealed class UiNavInputSystem : ISystem<GameState>
     public void Update(GameState state)
     {
         if (!IsEnabled) return;
-        var k = Keyboard.GetState();
+        var k = DemoKeyboard.Read();
         var shift = k.IsKeyDown(Keys.LeftShift) || k.IsKeyDown(Keys.RightShift);
         var tab = k.IsKeyDown(Keys.Tab);
 
@@ -1857,13 +1862,13 @@ public sealed class UiDemoShortcutSystem : ISystem<GameState>
     public UiDemoShortcutSystem(UiDemoScreen screen)
     {
         _screen = screen;
-        _previous = Keyboard.GetState();
+        _previous = DemoKeyboard.Read();
     }
 
     public void Update(GameState state)
     {
         if (!IsEnabled) return;
-        var current = Keyboard.GetState();
+        var current = DemoKeyboard.Read();
         if (current.IsKeyDown(Keys.Escape) && !_previous.IsKeyDown(Keys.Escape)) _screen.GoBackToLauncher();
         _previous = current;
     }

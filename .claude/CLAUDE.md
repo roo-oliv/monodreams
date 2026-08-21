@@ -157,11 +157,26 @@ modules into real game screens — start at
   --project MonoDreams.Demos -- --headless --screen <camera|physics|dialogue>
   --frames <N> --exit` renders every frame on a hidden full-res backbuffer,
   dumps non-blank PNGs to `MONODREAMS_DEBUG_DIR`, logs periodic live-heap
-  samples, and self-terminates after `<N>` frames (exit 0). This is the
-  path for verifying your own work without a human (issue #28). Optional:
+  samples, and self-terminates after `<N>` frames (exit 0). Unlike the
+  Examples path above, its simulated dt comes off a deterministic fixed-step
+  clock (frame-derived, never the wallclock) while the host itself still runs
+  unthrottled, so two runs of the same demo observe the same time series. This
+  is the path for verifying your own work without a human (issue #28). Optional:
   `--capture-every K`, `--sample-every M`. From tests:
   `GameTestRunner.RunDemosAsync(...)` plus `AssertScreenshotNonBlank` /
   `AssertHeapFlat` (see `HeadlessDemoTests`).
+  Identical PIXELS need one thing more — the **deterministic-input protocol**:
+  `MONODREAMS_EDITOR=1` plus a present `editor_op_plan.json` makes every demo
+  screen call `DemoKeyboard.Engage`, which stands BOTH hardware legs down (the
+  mouse via `CursorInputSystem.SkipHardwareRead`, the keyboard via the shared
+  `DemoKeyboard.Read` gate every demo keyboard reader goes through). The editor
+  overlay's own six keyboard readers are on that same gate by construction —
+  `DemoEditor` passes `EditorOverlay(readKeyboard: DemoKeyboard.Read)`, since
+  the protocol requires the editor flag and those readers are woven
+  `RunNormally`. Demo screens must never call
+  `Keyboard.GetState()`/`Mouse.GetState()` directly —
+  `DeterministicClockTests` lints it, and runs the double-run byte-identity
+  precheck the ECS-migration identity gate rests on.
 - **Debug directory override** — set `MONODREAMS_DEBUG_DIR` env var to
   redirect all debug output (logs, replay input, screenshots) to a custom
   path. Used by the test runner for parallel test isolation.

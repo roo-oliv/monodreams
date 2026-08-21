@@ -98,7 +98,13 @@ public sealed class DemoEditor
             projectContext: projectContext,
             // TB-A: the host-scoped session — its viewport tab stack survives a screen switch (the launcher
             // Play → Game tab following a transition to a demo screen, "fix them all" — Demos included).
-            session: session);
+            session: session,
+            // The overlay's six keyboard readers (both panels, the dialog, the context menu, the modal
+            // transform, the shortcut chord tracker) go through the demos' ONE keyboard gate instead of
+            // Keyboard.GetState. They are woven RunNormally, so under the deterministic-input protocol
+            // they would otherwise stay on the hardware: a held chord key firing an editor shortcut in
+            // one of two byte-identity runs is exactly the leg DemoKeyboard.Engage exists to close.
+            readKeyboard: DemoKeyboard.Read);
         // Modal capture (keyboard half): while a Save/Load dialog is open the editor keyboard stands
         // down so the dialog owns the keys (the mouse half is the dialog consuming the cursor edges).
         keys.ShouldSuppressInput = () => overlay.Dialog.IsOpen || overlay.Menu.IsOpen || overlay.Modal.IsActive

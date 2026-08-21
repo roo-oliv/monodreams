@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -155,6 +156,11 @@ public static class GameTestRunner
         throw new InvalidOperationException("Could not find repo root (directory containing MonoDreams.Examples.Desktop).");
     }
 
+    /// <summary>The repo root, for tests that read committed source instead of spawning a host — the
+    /// lint idiom already used by <c>EditorThemeLintTests</c> and <c>SceneLintTests</c>, exposed here so
+    /// a third private copy of the walk does not appear.</summary>
+    public static string RepoRoot() => FindRepoRoot();
+
     /// <summary>
     /// Runs the Examples host headless under an input-replay plan and collects its log.
     /// <paramref name="environment"/> adds extra process environment variables (e.g.
@@ -211,9 +217,9 @@ public static class GameTestRunner
     /// frames, then collects its log + screenshots. Mirrors <see cref="RunAsync"/>
     /// but targets the observe-and-self-verify path from issue #28.
     /// <paramref name="environment"/> adds extra process environment variables (e.g.
-    /// <c>MONODREAMS_EDITOR=1</c> for editor-flag runs). Unless the caller sets it,
-    /// <c>MONODREAMS_EDITOR</c> is pinned off so a developer's exported flag can never
-    /// perturb the flag-off headless contract these runs assert.
+    /// <c>MONODREAMS_EDITOR=1</c> for editor-flag runs). Every knob that changes what a run
+    /// CAPTURES or how big its frames are is pinned to its default first, so a developer's
+    /// exported variable can never perturb these runs; a caller override still wins.
     /// </summary>
     public static async Task<GameTestResult> RunDemosAsync(
         string screen,
@@ -237,13 +243,127 @@ public static class GameTestRunner
             await File.WriteAllTextAsync(Path.Combine(debugDir, "editor_op_plan.json"), opJson);
         }
 
-        var env = new Dictionary<string, string> { ["MONODREAMS_EDITOR"] = "0" };
+        // Machine state must not reach a spawned run. Each of these is a knob a developer plausibly
+        // exports for a manual session and then forgets, and each one silently invalidates a run these
+        // tests read as evidence:
+        //   MONODREAMS_EDITOR      — flips the flag-off headless contract HeadlessDemoTests assert.
+        //   MONODREAMS_SCREENSHOT  — builds a SECOND capture writer next to the host's own. Both stamp
+        //                            ordinal 000000 into the same debug dir, so ReadScreenshotsByOrdinal
+        //                            throws on the collision and the byte-identity precheck fails on
+        //                            machine state rather than on pixels.
+        //   MONODREAMS_RENDER_SCALE— changes the backbuffer size, so a capture is not comparable with a
+        //                            baseline taken in another session (the C7 cross-session rule).
+        //   MONODREAMS_PROFILE     — adds per-system timing lines to the log the assertions read.
+        // The remaining capture knobs (_INTERVAL/_MAX_FRAMES/_TARGET) are read only once
+        // MONODREAMS_SCREENSHOT selects a mode, which the pin above prevents — see
+        // ScreenshotCaptureSystem.FromEnvironment, the single owner of that contract.
+        var env = new Dictionary<string, string>
+        {
+            ["MONODREAMS_EDITOR"] = "0",
+            ["MONODREAMS_SCREENSHOT"] = "0",
+            ["MONODREAMS_RENDER_SCALE"] = "1",
+            ["MONODREAMS_PROFILE"] = "0",
+        };
         if (environment != null)
             foreach (var (key, value) in environment)
                 env[key] = value;
 
         return await RunProcessAsync("MonoDreams.Demos", args, debugDir, timeoutSeconds, env);
     }
+
+    // ─── byte-level screenshot comparison (issue #119, contract C7) ──────────────────────────────
+
+    /// Matches the ordinal <c>ScreenshotCaptureSystem.MakeFilename</c> stamps into every PNG name
+    /// (<c>screenshot_%06d_gt…_&lt;wallclock&gt;.png</c>). The ordinal is the ONLY part of that name
+    /// that is comparable across two runs: the trailing timestamp is <c>DateTime.Now</c>, so two runs
+    /// of the same demo never produce the same filename even when they produce the same pixels.
+    private static readonly Regex ScreenshotOrdinal = new(@"^screenshot_(\d+)_", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Indexes a run's PNG captures by capture ordinal — the pairing key
+    /// <see cref="AssertScreenshotsByteIdentical(string, string, string?)"/> compares on.
+    /// </summary>
+    /// <remarks>The ordinal is per capture-system instance. A run that drives two capture systems into
+    /// one debug directory (the periodic headless capture plus an <c>MONODREAMS_SCREENSHOT</c>
+    /// env-driven one) restarts the counter, so the pairing would silently compare unrelated frames —
+    /// that collision throws here instead. <see cref="RunDemosAsync"/> pins
+    /// <c>MONODREAMS_SCREENSHOT</c> off so an ambient export cannot cause it; this stays the net for a
+    /// caller that turns it on deliberately.</remarks>
+    public static SortedDictionary<int, string> ReadScreenshotsByOrdinal(string directory)
+    {
+        var byOrdinal = new SortedDictionary<int, string>();
+        if (!Directory.Exists(directory)) return byOrdinal;
+
+        foreach (var path in Directory.GetFiles(directory, "screenshot_*.png"))
+        {
+            var name = Path.GetFileName(path);
+            var match = ScreenshotOrdinal.Match(name);
+            if (!match.Success) continue;
+            var ordinal = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+            if (byOrdinal.TryGetValue(ordinal, out var existing))
+                throw new InvalidOperationException(
+                    $"Two captures in '{directory}' share ordinal {ordinal} ('{Path.GetFileName(existing)}' and " +
+                    $"'{name}'). Ordinal pairing is only meaningful for a single capture system per run.");
+            byOrdinal[ordinal] = path;
+        }
+
+        return byOrdinal;
+    }
+
+    /// <summary>
+    /// Asserts two runs produced <b>byte-identical</b> PNG captures — the identity criterion the ECS
+    /// migration gates on (issue #119, contract C7/item 24). <see cref="GameTestResult.AssertScreenshotNonBlank"/>
+    /// only proves a frame was drawn; it cannot see a changed pixel, so it is not usable as an
+    /// equivalence proof between a baseline run and a candidate run.
+    ///
+    /// <para>Frames are paired by capture ordinal, never by filename — the filename carries a
+    /// <c>DateTime.Now</c> stamp and therefore always differs. Comparison is strict on purpose: the
+    /// helper takes no "ignore these frames" or "tolerance" knob, because a byte-identity gate that
+    /// can be relaxed per call site proves nothing.</para>
+    /// </summary>
+    /// <param name="context">Optional label (e.g. the demo screen) prefixed to a failure report.</param>
+    public static void AssertScreenshotsByteIdentical(string firstDir, string secondDir, string? context = null)
+    {
+        var prefix = string.IsNullOrEmpty(context) ? "" : context + ": ";
+        var first = ReadScreenshotsByOrdinal(firstDir);
+        var second = ReadScreenshotsByOrdinal(secondDir);
+
+        Assert.True(first.Count > 0,
+            $"{prefix}No 'screenshot_*.png' captures in '{firstDir}' — there is nothing to compare.");
+        Assert.True(first.Keys.SequenceEqual(second.Keys),
+            $"{prefix}The two runs captured different frame sets: " +
+            $"[{string.Join(", ", first.Keys)}] in '{firstDir}' vs [{string.Join(", ", second.Keys)}] in '{secondDir}'.");
+
+        foreach (var ordinal in first.Keys)
+        {
+            var pathA = first[ordinal];
+            var pathB = second[ordinal];
+            var bytesA = File.ReadAllBytes(pathA);
+            var bytesB = File.ReadAllBytes(pathB);
+            if (bytesA.AsSpan().SequenceEqual(bytesB)) continue;
+
+            var shared = Math.Min(bytesA.Length, bytesB.Length);
+            var offset = shared;
+            for (var i = 0; i < shared; i++)
+            {
+                if (bytesA[i] == bytesB[i]) continue;
+                offset = i;
+                break;
+            }
+
+            Assert.Fail(
+                $"{prefix}Capture #{ordinal} differs between the two runs.\n" +
+                $"  a: {pathA} ({bytesA.Length} bytes)\n" +
+                $"  b: {pathB} ({bytesB.Length} bytes)\n" +
+                $"  first differing byte at offset {offset}" +
+                (offset < shared ? $" (0x{bytesA[offset]:X2} vs 0x{bytesB[offset]:X2})" : " (one file is a prefix of the other)"));
+        }
+    }
+
+    /// <summary>Byte-identity of the PNGs two <see cref="GameTestResult"/>s captured — see
+    /// <see cref="AssertScreenshotsByteIdentical(string, string, string?)"/>.</summary>
+    public static void AssertScreenshotsByteIdentical(GameTestResult first, GameTestResult second, string? context = null)
+        => AssertScreenshotsByteIdentical(first.DebugDir, second.DebugDir, context);
 
     private static string CreateDebugDir()
     {

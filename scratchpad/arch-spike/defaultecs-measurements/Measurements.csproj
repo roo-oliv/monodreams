@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Wave-0 measurement harness (issue #119, contract items 42 + 66). NOT a benchmark and NOT
+    product code: it interrogates the CURRENT backend (DefaultEcs 0.18.0-beta01) for three facts
+    the wave-1 facade contract tests have to be pinned against, and prints them as a report.
+
+    Deliberately references DefaultEcs directly (this whole tree rides the `scratchpad/` allowlist
+    entry of the wave-1 EcsBoundaryLintTests — plan D15) and references nothing from MonoDreams:
+    the questions are about the ECS library alone, so no engine, MonoGame or content pipeline is
+    dragged into the observation.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>MonoDreams.ArchSpike.Measurements</RootNamespace>
+    <AssemblyName>Measurements</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Same pin as MonoDreams.csproj:143 — the measurement is only worth anything at the
+         exact version the engine ships today. -->
+    <PackageReference Include="DefaultEcs" Version="0.18.0-beta01" />
+  </ItemGroup>
+
+</Project>

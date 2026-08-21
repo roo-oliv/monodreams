@@ -44,6 +44,14 @@ public class Game1 : Game
     private ScreenshotCaptureSystem? _screenshotCapture;
 
     /// <summary>
+    /// The deterministic fixed-step clock a headless run advances instead of MonoGame's
+    /// wallclock-derived <see cref="GameTime"/> — null in a windowed run, which keeps the host clock
+    /// untouched. See <see cref="HeadlessClock"/> for why the max-speed headless contract makes the
+    /// host clock unusable as an observable.
+    /// </summary>
+    private readonly HeadlessClock? _headlessClock;
+
+    /// <summary>
     /// The env-requested frame capture (<c>MONODREAMS_SCREENSHOT=raw|png</c>) — separate from
     /// <see cref="_screenshotCapture"/>, which is the headless host's own deterministic
     /// <c>CaptureNow</c> channel on chosen frames. This one is a per-frame take driven entirely by the
@@ -117,6 +125,13 @@ public class Game1 : Game
             _graphics.PreferredBackBufferHeight = _virtualHeight;
             _graphics.SynchronizeWithVerticalRetrace = false;
             IsFixedTimeStep = false;
+            // ...which is exactly why the frames the pipeline sees come off an INJECTED clock from
+            // here on: with the fixed timestep off, MonoGame's GameTime carries the measured wall
+            // duration of the previous frame, so GameState.Time/TotalTime, the [GT] stamp on every
+            // log line and anything integrating over dt would differ between two runs of the same
+            // scene. The headless step is TargetElapsedTime — the rate the WINDOWED path runs at —
+            // so the simulation is the player's, only produced as fast as the machine can.
+            _headlessClock = new HeadlessClock(TargetElapsedTime);
             // A hidden, never-activated window makes Game.IsActive false, and MonoGame throttles
             // inactive games (InactiveSleepTime, 20ms/frame ≈ 50fps) — which would quietly break
             // the headless max-speed contract. Headless never sleeps on inactivity.
@@ -230,6 +245,9 @@ public class Game1 : Game
             _screenshotCapture = new ScreenshotCaptureSystem(GraphicsDevice, captureIntervalSeconds: 0f, debugDir);
             Logger.Info($"Headless run: screen='{_headless.Screen}', frames={_headless.Frames}, " +
                         $"captureEvery={_headless.CaptureEvery}, sampleEvery={_headless.SampleEvery}.");
+            Logger.Info(string.Format(CultureInfo.InvariantCulture,
+                "Headless clock: deterministic fixed step {0:0.####} ms/frame — the wallclock is never read.",
+                _headlessClock!.Step.TotalMilliseconds));
         }
 
         // Env-requested frame capture, independent of --headless: a windowed run records the same way a
@@ -309,6 +327,11 @@ public class Game1 : Game
 
     protected override void Update(GameTime gameTime)
     {
+        // The ONE seam where a headless run swaps the host's wallclock-derived GameTime for the
+        // injected deterministic one — exactly once per Update, ahead of everything that reads it.
+        // Windowed runs pass MonoGame's own GameTime straight through, unchanged.
+        var frameTime = _headlessClock?.Advance() ?? gameTime;
+
         // First-frame HiDPI application (see ApplyEditorHiDpi): the OS window has its real size
         // only once the run loop starts, so Initialize is too early to measure it.
         if (!_hiDpiApplied)
@@ -318,10 +341,12 @@ public class Game1 : Game
         }
 
         // Q exits the app from any screen; ESC is handled per-screen (typically
-        // "back to launcher" inside a demo screen).
-        if (!_headless.Enabled && Keyboard.GetState().IsKeyDown(Keys.Q))
+        // "back to launcher" inside a demo screen). Read through the ONE demos keyboard gate like
+        // every other reader in this host — off the deterministic-input protocol it IS
+        // Keyboard.GetState, so a windowed run is unchanged.
+        if (!_headless.Enabled && DemoKeyboard.Read().IsKeyDown(Keys.Q))
             Exit();
-        _screenController.Update(gameTime);
+        _screenController.Update(frameTime);
 
         if (SystemProfiler.Enabled)
         {
@@ -349,10 +374,15 @@ public class Game1 : Game
 
     protected override void Draw(GameTime gameTime)
     {
+        // The frame Update just advanced — read, never advanced again: MonoGame runs Update and Draw
+        // once each per tick, so drawing must see the SAME instant the simulation just stepped to.
+        // Windowed: MonoGame's own GameTime, untouched.
+        var frameTime = _headlessClock?.Current ?? gameTime;
+
         // Headless deliberately does NOT early-return here (unlike the Examples host):
         // rendering every frame is what makes screenshots and render-path memory
         // behaviour observable.
-        _screenController.Draw(gameTime);
+        _screenController.Draw(frameTime);
 
         // AFTER the composite — the backbuffer is what a capture reads, so this must follow the draw
         // pipeline exactly like DriveHeadless's CaptureNow does. Interval/format/cap all come from the
@@ -360,12 +390,14 @@ public class Game1 : Game
         _envFrameCapture?.Update(_screenController.State);
 
         if (_headless.Enabled)
-            DriveHeadless(gameTime);
+            DriveHeadless(frameTime);
     }
 
     /// Per-frame headless bookkeeping: heap sampling, screenshot capture, and auto-exit.
     /// Runs after the frame has been composited to the backbuffer so a capture reads a
-    /// fully-rendered frame.
+    /// fully-rendered frame. <paramref name="gameTime"/> is the injected deterministic clock's
+    /// frame (see <see cref="HeadlessClock"/>), so the <c>gt=</c> field of every heap sample and
+    /// screenshot name is frame-derived — the same across two runs of the same demo.
     private void DriveHeadless(GameTime gameTime)
     {
         var totalSeconds = (float)gameTime.TotalGameTime.TotalSeconds;
